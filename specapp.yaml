@@ -39,3 +39,7 @@ documents:
       - { title: Kinds, at: kinds, key: name, columns: [block, summary] }
       - { title: Rules, at: rules, key: id, columns: [rule, summary, gate] }
       - { title: KPIs, at: kpis, key: id, columns: [block, measures, unit, summary] }
+
+tool:
+  run: [target/debug/orgspec, specapp]
+  verbs: [check]

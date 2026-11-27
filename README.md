@@ -20,7 +20,9 @@ for agentic software development.
 - **Example designs** (`organizations/`): a studio, a cooperative bakery, a clinic, an
   open-source project, a product company, a shop run mostly by agents, a design agency and a
   town office. All invented.
-- **A checker** (`crates/orgspec`): `orgspec check` and `orgspec type check`.
+- **A checker** (`crates/orgspec`): `orgspec check`, `orgspec type check`, and
+  `orgspec specapp check <design>`, which answers specapp's tool protocol (`specapp-findings/1`).
+  `specapp.yaml` is the manifest specapp reads this repository with.
 - **A KPI catalogue** (`kpis/`): what to measure per block. No KPI is read over a person.
 
 ## Try it
