@@ -23,4 +23,12 @@
 - `specapp.yaml`: the manifest (`specapp-pack/1`) that specapp reads this repository with: the
   blocks, the KPI catalogue, and two document classes, `organization` (`organizations/*.yaml`,
   drawn as parts and links, a part sits `in` another) and `type` (`types/*.yaml`, records). It
-  names no tool yet and no presentation, so a block takes the colour of its layer.
+  names no presentation, so a block takes the colour of its layer.
+- `orgspec specapp describe` and `orgspec specapp check <design>`: the checker answers specapp's
+  tool protocol. `check` prints `specapp-findings/1`: `valid`, one finding per violation with
+  its rule, gate, subject (`part:<name>`, `link:<from>-><to>:<carries>`, or `document` with the
+  name kept at the start of the message) and message, and the count of every rule. Exit 0 with
+  the document, exit 2 with `{error}` when the design cannot be read or the verb is unknown.
+- `specapp.yaml` names the tool: `target/debug/orgspec specapp`, verb `check`. specapp builds
+  nothing: run `cargo build -p orgspec` first; `specapp pack check` says when the binary is
+  missing.
