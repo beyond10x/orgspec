@@ -1,0 +1,81 @@
+format: orgspec-type/1
+type: professional-services
+origin: invented
+extends: [base]
+summary: An organization that sells the time and judgement of its members to clients.
+
+vocabulary:
+  relationship: client
+  offering: service
+
+kinds:
+  practice:
+    block: unit
+    nature: line
+    basis: function
+    summary: The members of one craft who work for clients.
+  client:
+    block: relationship
+    tie: customer
+    summary: A party the organization works for under an engagement.
+  service:
+    block: offering
+    audience: external
+    summary: A kind of work the organization sells.
+    attributes:
+      billing: { type: enum, values: [time, fixed, retainer], required: true }
+  partner:
+    block: role
+    summary: Answers for a practice and for the quality of its work.
+  engagement_lead:
+    block: role
+    summary: The one person a client talks to about an engagement.
+
+rules:
+  - id: practice_has_partner
+    summary: Every practice has at least one position that plays a partner role.
+    rule: parts
+    match: { block: position, role_kind: partner }
+    per: { block: unit, kind: practice }
+    min: 1
+
+  - id: client_has_one_lead
+    summary: Every client is served by one engagement lead position.
+    rule: links
+    each: { block: relationship, kind: client }
+    carries: serves
+    direction: in
+    other: { block: position, role_kind: engagement_lead }
+    min: 1
+    max: 1
+
+  - id: engagement_lead_is_human
+    summary: An engagement lead position is held by humans.
+    rule: value
+    each: { block: position, role_kind: engagement_lead }
+    field: held_by
+    one_of: [human]
+
+  - id: service_has_demand
+    summary: Every service has demand from at least one relationship.
+    rule: links
+    each: { block: offering, kind: service }
+    carries: demand
+    direction: in
+    min: 1
+    gate: false
+
+kpis:
+  - id: billable_share
+    block: position
+    measures: quality
+    unit: share
+    summary: Share of the time of a position's holders spent on work items of an engagement.
+    direction: target
+    target: 0.7
+  - id: clients_per_lead
+    block: position
+    measures: quality
+    unit: count
+    summary: Clients served by one engagement lead position, per seat.
+    direction: lower

@@ -1,0 +1,358 @@
+domain: org.membership
+
+summary: >-
+  A party belongs to an organization on a basis: employed, contracted, volunteer, owner, operated
+  or seconded. The membership is the boundary of the organization, one row per tie; it changes
+  while the organization persists. It names the party and the organization and nothing above
+  them: which seat a member holds is the assignment block's row.
+
+naming:
+  wire: membership
+  display: Membership
+
+types:
+  - name: org.membership.Basis
+    kind: enum
+    variants: [Employed, Contracted, Volunteer, Owner, Operated, Seconded]
+    naming:
+      summary: >-
+        Why the party belongs. Operated is the basis of an agent or a service that the
+        organization runs. Seconded is a member lent by another organization.
+
+entities:
+  # UNMAPPED: nothing in the design says whether one party may hold two open memberships of one
+  # organization (an owner who is also employed). No uniqueness guard is declared; open question
+  # for the owner.
+  # UNMAPPED: that basis Operated is given only to a party of kind Agent or Service is not held
+  # here. InviteMember reads that the party is registered and does not read its kind
+  # (`org.party.Party.kind`). Open question for the owner: whether a human or an organization
+  # invited on the basis Operated is refused.
+  - name: org.membership.Membership
+    naming:
+      summary: >-
+        One party's tie to one organization. Invited until the party joins, Active while it
+        belongs, Suspended while the tie rests, Ended for good. An ended membership stays on
+        record, because past assignments name it; a party that returns gets a new one.
+    identity:
+      name: membership_id
+      type: org.shared.MembershipId
+    fields:
+      - name: party_id
+        type: org.shared.PartyId
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: basis
+        type: org.membership.Basis
+      - name: invited_at
+        type: Timestamp
+      - name: joined_at
+        type: Optional<Timestamp>
+      - name: ended_at
+        type: Optional<Timestamp>
+    relations:
+      - {name: party, kind: references, target: org.party.Party, cardinality: one, via: party_id}
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    lifecycle:
+      initial: Invited
+      states:
+        - {name: Invited, summary: "The organization offered the tie; the party has not joined."}
+        - {name: Active, summary: "The party belongs and may hold positions."}
+        - name: Suspended
+          summary: "The tie rests: leave, a paused contract, an agent switched off."
+        - {name: Ended, summary: "The party no longer belongs. The row stays on record."}
+      terminal: [Ended]
+      transitions:
+        - {name: join, from: [Invited], to: Active}
+        - {name: suspend, from: [Active], to: Suspended}
+        - {name: resume, from: [Suspended], to: Active}
+        - name: end
+          from: [Invited, Active, Suspended]
+          to: Ended
+          summary: An invitation not taken ends the same way as a membership that was active.
+
+errors:
+  - name: org.membership.MembershipNotFound
+    summary: No membership of this identity is on record, and nothing changed.
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+
+  - name: org.membership.PartyNotFound
+    summary: No party of this identity is registered, and no membership was created.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+  - name: org.membership.OrganizationNotFound
+    summary: No organization of this identity is on record, and no membership was created.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.membership.MembershipStateConflict
+    summary: The membership is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: state, type: org.membership.Membership.State}
+
+events:
+  - name: org.membership.MemberInvited
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: basis, type: org.membership.Basis}
+      - {name: at, type: Timestamp}
+
+  - name: org.membership.MemberJoined
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.membership.MembershipSuspended
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.membership.MembershipResumed
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.membership.MembershipEnded
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: ended_from, type: org.membership.Membership.State}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.membership.InviteMember
+    naming:
+      wire: invite-member
+      display: Invite a member
+      summary: >-
+        Offers a party the tie to an organization on a basis. An agent or a service the
+        organization runs is invited on the basis Operated and joins like any other member.
+    input:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: basis, type: org.membership.Basis}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-party
+        when_related: {via: input.party_id, exists: false}
+        error: org.membership.PartyNotFound
+        payload:
+          org.membership.PartyNotFound: {party_id: input.party_id}
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.membership.OrganizationNotFound
+        payload:
+          org.membership.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: invited
+        creates: org.membership.Membership
+        instance: membership_id
+        sets:
+          party_id: input.party_id
+          organization_id: input.organization_id
+          basis: input.basis
+          invited_at: input.at
+        emits: [org.membership.MemberInvited]
+        payload:
+          org.membership.MemberInvited:
+            membership_id: input.membership_id
+            party_id: input.party_id
+            organization_id: input.organization_id
+            basis: input.basis
+            at: input.at
+        summary: The membership exists and is Invited.
+
+  - name: org.membership.JoinOrganization
+    naming:
+      wire: join-organization
+      display: Join the organization
+    input:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-membership
+        unknown_instance: true
+        error: org.membership.MembershipNotFound
+        payload:
+          org.membership.MembershipNotFound: {membership_id: input.membership_id}
+      - name: joined
+        moves: org.membership.Membership.join
+        instance: membership_id
+        sets:
+          joined_at: input.at
+        emits: [org.membership.MemberJoined]
+        payload:
+          org.membership.MemberJoined:
+            membership_id: input.membership_id
+            party_id: {subject: party_id}
+            organization_id: {subject: organization_id}
+            at: input.at
+        summary: The party belongs to the organization and may hold positions.
+      - name: wrong-state
+        wrong_state: true
+        error: org.membership.MembershipStateConflict
+        payload:
+          org.membership.MembershipStateConflict:
+            membership_id: input.membership_id
+            state: {subject: state}
+        summary: Only an invited membership is joined.
+
+  - name: org.membership.SuspendMembership
+    naming:
+      wire: suspend-membership
+      display: Suspend a membership
+    input:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-membership
+        unknown_instance: true
+        error: org.membership.MembershipNotFound
+        payload:
+          org.membership.MembershipNotFound: {membership_id: input.membership_id}
+      - name: suspended
+        moves: org.membership.Membership.suspend
+        instance: membership_id
+        emits: [org.membership.MembershipSuspended]
+        payload:
+          org.membership.MembershipSuspended:
+            membership_id: input.membership_id
+            at: input.at
+        summary: The tie rests. The membership keeps its identity and its history.
+      - name: wrong-state
+        wrong_state: true
+        error: org.membership.MembershipStateConflict
+        payload:
+          org.membership.MembershipStateConflict:
+            membership_id: input.membership_id
+            state: {subject: state}
+        summary: Only an active membership is suspended.
+
+  - name: org.membership.ResumeMembership
+    naming:
+      wire: resume-membership
+      display: Resume a membership
+    input:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-membership
+        unknown_instance: true
+        error: org.membership.MembershipNotFound
+        payload:
+          org.membership.MembershipNotFound: {membership_id: input.membership_id}
+      - name: resumed
+        moves: org.membership.Membership.resume
+        instance: membership_id
+        emits: [org.membership.MembershipResumed]
+        payload:
+          org.membership.MembershipResumed:
+            membership_id: input.membership_id
+            at: input.at
+        summary: The membership is Active again.
+      - name: wrong-state
+        wrong_state: true
+        error: org.membership.MembershipStateConflict
+        payload:
+          org.membership.MembershipStateConflict:
+            membership_id: input.membership_id
+            state: {subject: state}
+        summary: Only a suspended membership is resumed.
+
+  - name: org.membership.EndMembership
+    naming:
+      wire: end-membership
+      display: End a membership
+      summary: >-
+        Ends the tie from any open state. It does not look at assignments: an assignment names
+        its membership, never the reverse (see the note in the assignment block).
+    input:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-membership
+        unknown_instance: true
+        error: org.membership.MembershipNotFound
+        payload:
+          org.membership.MembershipNotFound: {membership_id: input.membership_id}
+      - name: ended
+        moves: org.membership.Membership.end
+        instance: membership_id
+        sets:
+          ended_at: input.at
+        emits: [org.membership.MembershipEnded]
+        payload:
+          org.membership.MembershipEnded:
+            membership_id: input.membership_id
+            party_id: {subject: party_id}
+            organization_id: {subject: organization_id}
+            ended_from: {subject: state}
+            at: input.at
+        summary: The party no longer belongs. The event says which state the tie ended from.
+      - name: wrong-state
+        wrong_state: true
+        error: org.membership.MembershipStateConflict
+        payload:
+          org.membership.MembershipStateConflict:
+            membership_id: input.membership_id
+            state: {subject: state}
+        summary: The membership had already ended.
+
+views:
+  - name: org.membership.Memberships
+    source: org.membership.Membership
+    consistency: read_your_writes
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: basis, type: org.membership.Basis}
+      - {name: invited_at, type: Timestamp}
+      - {name: joined_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.membership.Membership.State}
+    naming:
+      wire: memberships
+      display: Memberships
+
+  # Who belongs to one organization now: its boundary.
+  - name: org.membership.MembersOfOrganization
+    source: org.membership.Membership
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter:
+      all:
+        - organization_id == param.organization_id
+        - state == Active
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: basis, type: org.membership.Basis}
+      - {name: joined_at, type: Optional<Timestamp>}
+    naming:
+      wire: members-of-organization
+      display: Members of an organization
+
+  # Every organization one party belongs to: the same party can be a member of two.
+  - name: org.membership.MembershipsOfParty
+    source: org.membership.Membership
+    consistency: read_your_writes
+    params:
+      - {name: party_id, type: org.shared.PartyId}
+    filter: party_id == param.party_id
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: basis, type: org.membership.Basis}
+      - {name: state, type: org.membership.Membership.State}
+    naming:
+      wire: memberships-of-party
+      display: Memberships of a party

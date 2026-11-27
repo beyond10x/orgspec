@@ -1,0 +1,1533 @@
+domain: org.work
+
+summary: >-
+  Demand and its fulfilment. A request comes from a relationship or a unit and asks for an
+  offering. A work item sits at one position at a time. A hand-off carries a work item across
+  the seam between two positions, and the receiving position accepts or refuses it. A commitment
+  is a promise of one position to a beneficiary with a due date: it is met, it slips, it is
+  renegotiated or released.
+
+naming:
+  wire: work
+  display: Work
+
+# UNMAPPED: the commands of this domain refuse an organization, an offering, a goal and a
+# promising position that are not on record, and read the state of none of them: that an
+# offering is Offered or a position Established is not checked. Open for the owner: which of
+# those checks become `when_related:` refusals. The requester and the beneficiary are unions,
+# and a guard reads the row an identifier names, not one inside a union (ESS-COMMAND-002,
+# `type_mismatch`), so the relationship, unit or position they name is stored as given. The
+# same holds for org.process (the states of its organization, offering and role) and for
+# org.agreement (the states of its provider unit and offering; its consumer is a union).
+
+types:
+  - name: org.work.Requester
+    kind: union
+    tag: type
+    variants:
+      Relationship: org.shared.RelationshipId
+      Unit: org.shared.UnitId
+    naming:
+      summary: >-
+        Who asks: a relationship with a party outside the organization, or one of its own units.
+        Exactly one, by construction.
+
+  - name: org.work.Beneficiary
+    kind: union
+    tag: type
+    variants:
+      Relationship: org.shared.RelationshipId
+      Unit: org.shared.UnitId
+      Position: org.shared.PositionId
+    naming:
+      summary: >-
+        Who a commitment is made to: a relationship with a party outside the organization, a
+        unit, or a position. Exactly one, by construction.
+
+entities:
+  - name: org.work.Request
+    naming:
+      summary: >-
+        Demand for one offering, in the requester's words. Received, then accepted or declined;
+        an accepted request is fulfilled or cancelled.
+    identity:
+      name: request_id
+      type: org.shared.RequestId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: from
+        type: org.work.Requester
+      - name: offering_id
+        type: org.shared.OfferingId
+      - name: what
+        type: String
+        summary: What is asked for.
+      - name: received_at
+        type: Timestamp
+      - name: answered_at
+        type: Optional<Timestamp>
+        summary: When it was accepted or declined.
+      - name: closed_at
+        type: Optional<Timestamp>
+        summary: When it was fulfilled or cancelled.
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: offering
+        kind: references
+        target: org.offering.Offering
+        cardinality: one
+        via: offering_id
+    lifecycle:
+      initial: Received
+      states:
+        - {name: Received, summary: "Waits for an answer."}
+        - {name: Accepted, summary: "The organization took it on; work items may be opened for it."}
+        - {name: Declined, summary: "The organization did not take it on."}
+        - {name: Fulfilled, summary: "What was asked for was delivered."}
+        - {name: Cancelled, summary: "Taken on and then given up."}
+      terminal: [Declined, Fulfilled, Cancelled]
+      transitions:
+        - {name: accept, from: [Received], to: Accepted}
+        - {name: decline, from: [Received], to: Declined}
+        - {name: fulfil, from: [Accepted], to: Fulfilled}
+        - {name: cancel, from: [Accepted], to: Cancelled}
+
+  # UNMAPPED: a work item has no text of its own. One opened without a request, a process or a
+  # goal says nothing about what the work is. Open question for the owner: a `what` field as on
+  # Request and Commitment.
+  - name: org.work.WorkItem
+    naming:
+      summary: >-
+        One piece of work at one position. It may serve a request, follow a step of a process and
+        move a goal. It moves to another position only through an accepted hand-off.
+    identity:
+      name: work_item_id
+      type: org.shared.WorkItemId
+    fields:
+      - name: request_id
+        type: Optional<org.shared.RequestId>
+      - name: process_id
+        type: Optional<org.shared.ProcessId>
+      - name: step_id
+        type: Optional<org.shared.StepId>
+        summary: The step of the process this item is at; named only together with the process.
+      - name: at_position
+        type: org.shared.PositionId
+        summary: The position the item is at now.
+      - name: goal_id
+        type: Optional<org.shared.GoalId>
+      - name: kind
+        type: Optional<org.shared.KindName>
+        summary: The kind an organization type gives. Stored, never interpreted.
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+    relations:
+      - name: request
+        kind: references
+        target: org.work.Request
+        cardinality: one
+        via: request_id
+      - name: process
+        kind: references
+        target: org.process.Process
+        cardinality: one
+        via: process_id
+      - name: step
+        kind: references
+        target: org.process.Step
+        cardinality: one
+        via: step_id
+      - name: position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: at_position
+      - name: goal
+        kind: references
+        target: org.goal.Goal
+        cardinality: one
+        via: goal_id
+    lifecycle:
+      initial: Open
+      states:
+        - {name: Open, summary: "At a position, not started."}
+        - {name: InProgress, summary: "Being worked on."}
+        - {name: Blocked, summary: "Started and waiting for something outside the position."}
+        - {name: Done, summary: "Finished."}
+        - {name: Dropped, summary: "Given up before it was finished."}
+      terminal: [Done, Dropped]
+      # UNMAPPED: the lifecycle is Open → InProgress ⇄ Blocked, then Done or Dropped; which
+      # states Done and Dropped are reached from is not stated. Taken: Done from InProgress
+      # only; Dropped from Open, InProgress and Blocked.
+      transitions:
+        - {name: start, from: [Open], to: InProgress}
+        - {name: block, from: [InProgress], to: Blocked}
+        - {name: unblock, from: [Blocked], to: InProgress}
+        - {name: complete, from: [InProgress], to: Done}
+        - {name: drop, from: [Open, InProgress, Blocked], to: Dropped}
+
+  - name: org.work.Handoff
+    naming:
+      summary: >-
+        One crossing of a seam: the position a work item is at offers it to another position,
+        and that position accepts or refuses. Only an accepted hand-off moves the work item. The
+        time between offer and answer is the wait at the seam.
+    identity:
+      name: handoff_id
+      type: org.shared.HandoffId
+    fields:
+      - name: work_item_id
+        type: org.shared.WorkItemId
+      - name: from
+        type: org.shared.PositionId
+        summary: The position that offers; the work item is at it.
+      - name: to
+        type: org.shared.PositionId
+        summary: The position that receives, and the only one that answers.
+      - name: offered_at
+        type: Timestamp
+      - name: answered_at
+        type: Optional<Timestamp>
+    relations:
+      - name: work_item
+        kind: references
+        target: org.work.WorkItem
+        cardinality: one
+        via: work_item_id
+      - name: from_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: from
+      - name: to_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: to
+    lifecycle:
+      initial: Offered
+      states:
+        - {name: Offered, summary: "Waits for the receiving position; the work item stays where it is."}
+        - {name: Accepted, summary: "The receiving position took the work item."}
+        - {name: Refused, summary: "The receiving position did not take it; the work item stays."}
+      terminal: [Accepted, Refused]
+      transitions:
+        - {name: accept, from: [Offered], to: Accepted}
+        - {name: refuse, from: [Offered], to: Refused}
+
+  # UNMAPPED: what `recurring` changes is not stated. It is stored and shown; no command reads
+  # it, and a recurring commitment that is Met opens no next one.
+  # UNMAPPED: a commitment of a position to itself (`to` is the Position variant with the value
+  # of `by`) is not refused: a guard cannot read the payload of a union variant
+  # (ESS-COMMAND-003, ESS-COMMAND-002).
+  - name: org.work.Commitment
+    naming:
+      summary: >-
+        A promise of one position to a beneficiary: what, and by when. The position that
+        promises is `by`; the seat promises, not the person on it. Open until it is met or
+        released; Slipped when the due date passed without either, and it still can be met or
+        released from there.
+    identity:
+      name: commitment_id
+      type: org.shared.CommitmentId
+    fields:
+      - name: by
+        type: org.shared.PositionId
+        summary: The position that promises.
+      - name: to
+        type: org.work.Beneficiary
+        summary: Who the promise is made to.
+      - name: what
+        type: String
+        summary: What is promised.
+      - name: due
+        type: Timestamp
+        summary: When it is due. Changed only by a renegotiation.
+      - name: recurring
+        type: Boolean
+      - name: made_at
+        type: Timestamp
+      - name: slipped_at
+        type: Optional<Timestamp>
+        summary: When it was recorded as slipped.
+      - name: closed_at
+        type: Optional<Timestamp>
+        summary: When it was met or released.
+    relations:
+      - name: by_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: by
+    lifecycle:
+      initial: Open
+      states:
+        - {name: Open, summary: "Promised and not yet met, slipped or released."}
+        - {name: Slipped, summary: "The due date passed and it is not met. Not an end: it is met or released from here."}
+        - {name: Met, summary: "What was promised was delivered."}
+        - {name: Released, summary: "The promise no longer holds and was not met."}
+      terminal: [Met, Released]
+      transitions:
+        - {name: slip, from: [Open], to: Slipped}
+        - {name: meet, from: [Open, Slipped], to: Met}
+        - {name: release, from: [Open, Slipped], to: Released}
+
+errors:
+  - name: org.work.OrganizationNotFound
+    summary: No organization of this identity exists, and no request was received.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.work.OfferingNotFound
+    summary: The request names an offering nobody proposed, and nothing was received.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.work.PositionNotFound
+    summary: No position of this identity exists, and nothing was recorded.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.work.GoalNotFound
+    summary: The work item names a goal nobody proposed, and nothing was opened.
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+
+  - name: org.work.RequestNotFound
+    summary: No request of this identity exists, and nothing changed.
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+
+  - name: org.work.RequestStateConflict
+    summary: The request is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: state, type: org.work.Request.State}
+
+  - name: org.work.RequestNotAccepted
+    summary: Work is opened only for an accepted request, and nothing was opened.
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+
+  - name: org.work.ProcessNotFound
+    summary: The work item names a process nobody drafted, and nothing was opened.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+  - name: org.work.ProcessNotInForce
+    summary: New work follows only a process in force, and nothing was opened.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+  - name: org.work.StepNotFound
+    summary: The work item names a step nobody listed, and nothing was opened.
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+
+  - name: org.work.StepNotListed
+    summary: The step was removed from its process, and nothing was opened.
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+
+  - name: org.work.WorkItemNotFound
+    summary: No work item of this identity exists, and nothing changed.
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+
+  - name: org.work.WorkItemStateConflict
+    summary: The work item is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: state, type: org.work.WorkItem.State}
+
+  - name: org.work.WorkItemClosed
+    summary: The work item is Done or Dropped, so it crosses no seam, and nothing changed.
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+
+  - name: org.work.WorkItemNotAtPosition
+    summary: >-
+      Only the position a work item is at hands it off; the item is at another position, and
+      nothing was offered.
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.work.HandoffToSamePosition
+    summary: A hand-off crosses from one position to another; this one named one position twice.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.work.HandoffNotFound
+    summary: No hand-off of this identity exists, and nothing changed.
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+
+  - name: org.work.HandoffStateConflict
+    summary: The hand-off was answered before, and nothing changed.
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: state, type: org.work.Handoff.State}
+
+  - name: org.work.NotTheOfferingPosition
+    summary: >-
+      The acceptance named another offering position than the hand-off holds, and nothing
+      changed.
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.work.NotTheReceivingPosition
+    summary: >-
+      Only the position a hand-off is offered to accepts or refuses it; another position
+      answered, and nothing changed.
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.work.CommitmentNotFound
+    summary: No commitment of this identity exists, and nothing changed.
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+
+  - name: org.work.CommitmentStateConflict
+    summary: The commitment is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: state, type: org.work.Commitment.State}
+
+  - name: org.work.CommitmentNotYetDue
+    summary: A commitment slips only once its due date passed; it is not due yet, and nothing changed.
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: due, type: Timestamp}
+
+  - name: org.work.CommitmentClosed
+    summary: The commitment is Met or Released, so its due date no longer changes, and nothing changed.
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+
+events:
+  - name: org.work.RequestReceived
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: from, type: org.work.Requester}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: what, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.RequestAccepted
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.RequestDeclined
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.RequestFulfilled
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.RequestCancelled
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemOpened
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: request_id, type: Optional<org.shared.RequestId>}
+      - {name: process_id, type: Optional<org.shared.ProcessId>}
+      - {name: step_id, type: Optional<org.shared.StepId>}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemStarted
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemBlocked
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemUnblocked
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemCompleted
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.WorkItemDropped
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.HandoffOffered
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.HandoffAccepted
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.HandoffRefused
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.CommitmentMade
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: to, type: org.work.Beneficiary}
+      - {name: what, type: String}
+      - {name: due, type: Timestamp}
+      - {name: recurring, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.CommitmentSlipped
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: due, type: Timestamp}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.CommitmentRenegotiated
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: due, type: Timestamp}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.CommitmentMet
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.work.CommitmentReleased
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.work.ReceiveRequest
+    naming:
+      wire: receive-request
+      display: Receive a request
+    input:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: from, type: org.work.Requester}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: what, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.work.OrganizationNotFound
+        payload:
+          org.work.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: no-such-offering
+        when_related: {via: input.offering_id, exists: false}
+        error: org.work.OfferingNotFound
+        payload:
+          org.work.OfferingNotFound: {offering_id: input.offering_id}
+      - name: received
+        creates: org.work.Request
+        instance: request_id
+        sets:
+          organization_id: input.organization_id
+          from: input.from
+          offering_id: input.offering_id
+          what: input.what
+          received_at: input.at
+        emits: [org.work.RequestReceived]
+        payload:
+          org.work.RequestReceived:
+            request_id: input.request_id
+            organization_id: input.organization_id
+            from: input.from
+            offering_id: input.offering_id
+            what: input.what
+            at: input.at
+        summary: The request is Received and waits for an answer.
+
+  - name: org.work.AcceptRequest
+    naming:
+      wire: accept-request
+      display: Accept a request
+    input:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-request
+        unknown_instance: true
+        error: org.work.RequestNotFound
+        payload:
+          org.work.RequestNotFound: {request_id: input.request_id}
+      - name: accepted
+        moves: org.work.Request.accept
+        instance: request_id
+        sets:
+          answered_at: input.at
+        emits: [org.work.RequestAccepted]
+        payload:
+          org.work.RequestAccepted:
+            request_id: input.request_id
+            at: input.at
+        summary: The organization took the request on; work items may be opened for it.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.RequestStateConflict
+        payload:
+          org.work.RequestStateConflict:
+            request_id: input.request_id
+            state: {subject: state}
+        summary: Only a Received request is accepted.
+
+  - name: org.work.DeclineRequest
+    naming:
+      wire: decline-request
+      display: Decline a request
+    input:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-request
+        unknown_instance: true
+        error: org.work.RequestNotFound
+        payload:
+          org.work.RequestNotFound: {request_id: input.request_id}
+      - name: declined
+        moves: org.work.Request.decline
+        instance: request_id
+        sets:
+          answered_at: input.at
+        emits: [org.work.RequestDeclined]
+        payload:
+          org.work.RequestDeclined:
+            request_id: input.request_id
+            reason: input.reason
+            at: input.at
+        summary: The organization did not take the request on, and said why.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.RequestStateConflict
+        payload:
+          org.work.RequestStateConflict:
+            request_id: input.request_id
+            state: {subject: state}
+        summary: Only a Received request is declined.
+
+  - name: org.work.FulfilRequest
+    naming:
+      wire: fulfil-request
+      display: Fulfil a request
+    input:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-request
+        unknown_instance: true
+        error: org.work.RequestNotFound
+        payload:
+          org.work.RequestNotFound: {request_id: input.request_id}
+      - name: fulfilled
+        moves: org.work.Request.fulfil
+        instance: request_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.RequestFulfilled]
+        payload:
+          org.work.RequestFulfilled:
+            request_id: input.request_id
+            at: input.at
+        summary: What was asked for was delivered. The work items of the request are not changed here.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.RequestStateConflict
+        payload:
+          org.work.RequestStateConflict:
+            request_id: input.request_id
+            state: {subject: state}
+        summary: Only an Accepted request is fulfilled.
+
+  - name: org.work.CancelRequest
+    naming:
+      wire: cancel-request
+      display: Cancel an accepted request
+    input:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-request
+        unknown_instance: true
+        error: org.work.RequestNotFound
+        payload:
+          org.work.RequestNotFound: {request_id: input.request_id}
+      - name: cancelled
+        moves: org.work.Request.cancel
+        instance: request_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.RequestCancelled]
+        payload:
+          org.work.RequestCancelled:
+            request_id: input.request_id
+            reason: input.reason
+            at: input.at
+        summary: The request was given up. Its work items are not changed here; each is dropped on its own.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.RequestStateConflict
+        payload:
+          org.work.RequestStateConflict:
+            request_id: input.request_id
+            state: {subject: state}
+        summary: Only an Accepted request is cancelled; a Received one is declined.
+
+  # UNMAPPED: the design counts "work accepted by a position that plays no role of the step" as a
+  # correctness KPI of a run. The role of a position is a field of org.position.Position, and no
+  # guard here compares it with the step's role. Taken: not refused; the KPI reads
+  # WorkItemOpened and HandoffAccepted.
+  #
+  # UNMAPPED: a work item that names a step and a process should be refused when the step
+  # belongs to another process, and a step named without a process too. Each form validates and
+  # then costs the suite the accepting branch, and with it every scenario of a work item:
+  # `when_related: {via: input.step_id, predicate: process_id != input.process_id}` leaves
+  # `opened` unreached (ESS-SYNTH-003, and ESS-SYNTH-004 for all that follows it); the row-set
+  # form over org.process.Step has no arrangement (ESS-SYNTH-001); a `when:` over
+  # `defined(step_id)` beside the related guards leaves them unreached (ESS-SYNTH-003). Taken
+  # instead: process_id and step_id are stored as given, each checked on its own (it exists; the
+  # process is in force; the step is listed). That the step belongs to the process is not
+  # checked here.
+  #
+  # UNMAPPED: the design does not say whether one work item moves through the steps of its
+  # process or each step is a work item of its own. Taken: step_id is set when the item is
+  # opened and no command changes it. Open question for the owner.
+  #
+  # UNMAPPED: that the position a work item is opened at exists is not checked. The refusal
+  # `when_related: {via: input.at_position, exists: false}` validates, and synthesis then
+  # writes no scenario for OfferHandoff, for most of AcceptHandoff and RefuseHandoff and for
+  # the states of a hand-off (ESS-SYNTH-003, ESS-SYNTH-004, ESS-SYNTH-001): 25 scenarios for
+  # one. Taken: `at_position` is stored as given, and the relation `position` declares what it
+  # names. The goal a work item names is checked.
+  - name: org.work.OpenWorkItem
+    naming:
+      wire: open-work-item
+      display: Open a work item at a position
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: request_id, type: Optional<org.shared.RequestId>}
+      - {name: process_id, type: Optional<org.shared.ProcessId>}
+      - {name: step_id, type: Optional<org.shared.StepId>}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-request
+        when_related: {via: input.request_id, exists: false}
+        error: org.work.RequestNotFound
+        payload:
+          org.work.RequestNotFound: {request_id: input.request_id}
+      - name: no-such-process
+        when_related: {via: input.process_id, exists: false}
+        error: org.work.ProcessNotFound
+        payload:
+          org.work.ProcessNotFound: {process_id: input.process_id}
+      - name: no-such-step
+        when_related: {via: input.step_id, exists: false}
+        error: org.work.StepNotFound
+        payload:
+          org.work.StepNotFound: {step_id: input.step_id}
+      - name: no-such-goal
+        when_related: {via: input.goal_id, exists: false}
+        error: org.work.GoalNotFound
+        payload:
+          org.work.GoalNotFound: {goal_id: input.goal_id}
+      - name: request-not-accepted
+        when_related: {via: input.request_id, predicate: state != Accepted}
+        error: org.work.RequestNotAccepted
+        payload:
+          org.work.RequestNotAccepted: {request_id: input.request_id}
+      - name: process-not-in-force
+        when_related: {via: input.process_id, predicate: state != InForce}
+        error: org.work.ProcessNotInForce
+        payload:
+          org.work.ProcessNotInForce: {process_id: input.process_id}
+      - name: step-not-listed
+        when_related: {via: input.step_id, predicate: state == Removed}
+        error: org.work.StepNotListed
+        payload:
+          org.work.StepNotListed: {step_id: input.step_id}
+      - name: opened
+        creates: org.work.WorkItem
+        instance: work_item_id
+        sets:
+          request_id: input.request_id
+          process_id: input.process_id
+          step_id: input.step_id
+          at_position: input.at_position
+          goal_id: input.goal_id
+          kind: input.kind
+          opened_at: input.at
+        emits: [org.work.WorkItemOpened]
+        payload:
+          org.work.WorkItemOpened:
+            work_item_id: input.work_item_id
+            request_id: input.request_id
+            process_id: input.process_id
+            step_id: input.step_id
+            at_position: input.at_position
+            goal_id: input.goal_id
+            kind: input.kind
+            at: input.at
+        summary: The work item is Open at the position, at no step.
+
+  - name: org.work.StartWorkItem
+    naming:
+      wire: start-work-item
+      display: Start a work item
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-work-item
+        unknown_instance: true
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: started
+        moves: org.work.WorkItem.start
+        instance: work_item_id
+        emits: [org.work.WorkItemStarted]
+        payload:
+          org.work.WorkItemStarted:
+            work_item_id: input.work_item_id
+            at_position: {subject: at_position}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.WorkItemStateConflict
+        payload:
+          org.work.WorkItemStateConflict:
+            work_item_id: input.work_item_id
+            state: {subject: state}
+        summary: Only an Open work item is started; a Blocked one is unblocked.
+
+  - name: org.work.BlockWorkItem
+    naming:
+      wire: block-work-item
+      display: Mark a work item blocked
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-work-item
+        unknown_instance: true
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: blocked
+        moves: org.work.WorkItem.block
+        instance: work_item_id
+        emits: [org.work.WorkItemBlocked]
+        payload:
+          org.work.WorkItemBlocked:
+            work_item_id: input.work_item_id
+            at_position: {subject: at_position}
+            reason: input.reason
+            at: input.at
+        summary: The item waits for something outside its position; the event says for what.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.WorkItemStateConflict
+        payload:
+          org.work.WorkItemStateConflict:
+            work_item_id: input.work_item_id
+            state: {subject: state}
+        summary: Only a work item in progress is blocked.
+
+  - name: org.work.UnblockWorkItem
+    naming:
+      wire: unblock-work-item
+      display: Take up a blocked work item again
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-work-item
+        unknown_instance: true
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: unblocked
+        moves: org.work.WorkItem.unblock
+        instance: work_item_id
+        emits: [org.work.WorkItemUnblocked]
+        payload:
+          org.work.WorkItemUnblocked:
+            work_item_id: input.work_item_id
+            at_position: {subject: at_position}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.WorkItemStateConflict
+        payload:
+          org.work.WorkItemStateConflict:
+            work_item_id: input.work_item_id
+            state: {subject: state}
+        summary: Only a Blocked work item is unblocked.
+
+  - name: org.work.CompleteWorkItem
+    naming:
+      wire: complete-work-item
+      display: Complete a work item
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-work-item
+        unknown_instance: true
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: completed
+        moves: org.work.WorkItem.complete
+        instance: work_item_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.WorkItemCompleted]
+        payload:
+          org.work.WorkItemCompleted:
+            work_item_id: input.work_item_id
+            at_position: {subject: at_position}
+            at: input.at
+        summary: The work item is Done. Its request is fulfilled by its own command.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.WorkItemStateConflict
+        payload:
+          org.work.WorkItemStateConflict:
+            work_item_id: input.work_item_id
+            state: {subject: state}
+        summary: Only a work item in progress is completed.
+
+  - name: org.work.DropWorkItem
+    naming:
+      wire: drop-work-item
+      display: Drop a work item
+    input:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-work-item
+        unknown_instance: true
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: dropped
+        moves: org.work.WorkItem.drop
+        instance: work_item_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.WorkItemDropped]
+        payload:
+          org.work.WorkItemDropped:
+            work_item_id: input.work_item_id
+            at_position: {subject: at_position}
+            reason: input.reason
+            at: input.at
+        summary: The work item was given up before it was finished.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.WorkItemStateConflict
+        payload:
+          org.work.WorkItemStateConflict:
+            work_item_id: input.work_item_id
+            state: {subject: state}
+        summary: A Done or Dropped work item is not dropped.
+
+  # UNMAPPED: "a work item has at most one hand-off that waits" is not refused. A row-set guard
+  # on OfferHandoff (`when_related: {entity: org.work.Handoff, where: ..., exists: true}`)
+  # validates, and synthesis then finds no witness for the accepting branch (ESS-SYNTH-003).
+  # Taken: several hand-offs of one work item may wait; the first one accepted moves the item,
+  # and each other one answers WorkItemNotAtPosition at acceptance and is refused. Open for the
+  # owner: whether a second waiting offer is refused at the offer.
+  #
+  # UNMAPPED: that the offering and the receiving position exist is not checked. A refusal
+  # `when_related: {via: input.to, exists: false}` validates and takes 11 scenarios of the
+  # hand-off (ESS-SYNTH-003, ESS-SYNTH-004), `same-position` among them; the same refusal over
+  # `input.from` takes 7 (ESS-SYNTH-003), `offered` among them. With either one, scenarios that
+  # passed before fail on the interpreter. Taken: both identifiers are stored as given, and the
+  # relations `from_position` and `to_position` declare what they name.
+  - name: org.work.OfferHandoff
+    naming:
+      wire: offer-handoff
+      display: Offer a work item to another position
+      summary: >-
+        The position a work item is at offers it to another position. Nothing moves yet: the
+        receiving position answers with AcceptHandoff or RefuseHandoff.
+    input:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: same-position
+        when: from == to
+        error: org.work.HandoffToSamePosition
+        payload:
+          org.work.HandoffToSamePosition: {position_id: input.to}
+      - name: no-such-work-item
+        when_related: {via: input.work_item_id, exists: false}
+        error: org.work.WorkItemNotFound
+        payload:
+          org.work.WorkItemNotFound: {work_item_id: input.work_item_id}
+      - name: work-item-closed
+        when_related:
+          via: input.work_item_id
+          predicate: {any: [state == Done, state == Dropped]}
+        error: org.work.WorkItemClosed
+        payload:
+          org.work.WorkItemClosed: {work_item_id: input.work_item_id}
+      # UNMAPPED: synthesis does not keep `from` equal to the `at_position` of the work item
+      # where this command arranges a hand-off for AcceptHandoff. AcceptHandoff reads the work
+      # item through the stored `work_item_id`, so it is synthesized by the strategy
+      # `arrange_related_row` (ESS-SYNTH-008 for its `accepted`): synthesis points this command
+      # at another work item and leaves `from` as it was, and this guard answers where the
+      # scenario expects `offered` (ESS-CF-OUTCOME: 6 scenarios). No form of this guard changes
+      # that: with the guard taken out the same 6 fail one step later, at `not-the-receiver` of
+      # AcceptHandoff, whose `accepted_by` and `taken_from` are not sent equal to the stored
+      # `to` and `from` either. Taken: the guard stays as it is, the failing ids are listed in
+      # blocks/known-failing.txt, and the authored scenarios under blocks/scenarios/work/ reach
+      # each outcome.
+      - name: not-at-position
+        when_related: {via: input.work_item_id, predicate: at_position != input.from}
+        error: org.work.WorkItemNotAtPosition
+        payload:
+          org.work.WorkItemNotAtPosition:
+            work_item_id: input.work_item_id
+            position_id: input.from
+      - name: offered
+        creates: org.work.Handoff
+        instance: handoff_id
+        sets:
+          work_item_id: input.work_item_id
+          from: input.from
+          to: input.to
+          offered_at: input.at
+        emits: [org.work.HandoffOffered]
+        payload:
+          org.work.HandoffOffered:
+            handoff_id: input.handoff_id
+            work_item_id: input.work_item_id
+            from: input.from
+            to: input.to
+            at: input.at
+        summary: The hand-off is Offered; the work item stays at the offering position.
+
+  # UNMAPPED: the input `taken_from` is in no source. The rule it serves is "the work item is
+  # still at the offering position when the hand-off is accepted". A guard cannot compare the
+  # related work item with the hand-off's own `from` (`when_related` reads no `subject.<field>`,
+  # ESS-COMMAND-003), so the receiver names the offering position and both sides are compared
+  # with that input. Open for the owner: keep the input, or drop the rule.
+  # Two outcomes of this command get no outcome scenario from synthesis (ESS-SYNTH-008):
+  # `no-such-handoff` and `accepted`, because the command also guards on the related work item.
+  # The synthesized scenario of the accepting move,
+  # `org.work.Handoff/transition/accept/by/org.work.AcceptHandoff/accepted`, fails on the
+  # interpreter for the cause written at `not-at-position` of OfferHandoff; the move is covered
+  # by blocks/scenarios/work/clinic-handoff-accepted.yaml. `no-such-handoff` still needs an
+  # authored scenario.
+  - name: org.work.AcceptHandoff
+    naming:
+      wire: accept-handoff
+      display: Accept a hand-off
+      summary: >-
+        The receiving position takes the work item. The hand-off is Accepted and the work item is
+        at the receiving position, in one decision.
+    input:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - name: accepted_by
+        type: org.shared.PositionId
+        summary: The position that answers; it must be the one the hand-off is offered to.
+      - name: taken_from
+        type: org.shared.PositionId
+        summary: >-
+          The position the receiver takes the work item from; it must be the one that offered,
+          and the work item must still be at it.
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-handoff
+        unknown_instance: true
+        error: org.work.HandoffNotFound
+        payload:
+          org.work.HandoffNotFound: {handoff_id: input.handoff_id}
+      - name: not-the-receiver
+        when_subject: {predicate: {all: [state == Offered, to != input.accepted_by]}}
+        error: org.work.NotTheReceivingPosition
+        payload:
+          org.work.NotTheReceivingPosition:
+            handoff_id: input.handoff_id
+            position_id: input.accepted_by
+      - name: not-the-origin
+        when_subject: {predicate: {all: [state == Offered, from != input.taken_from]}}
+        error: org.work.NotTheOfferingPosition
+        payload:
+          org.work.NotTheOfferingPosition:
+            handoff_id: input.handoff_id
+            position_id: input.taken_from
+      - name: work-item-closed
+        when_related:
+          via: work_item_id
+          predicate: {any: [state == Done, state == Dropped]}
+        error: org.work.WorkItemClosed
+        payload:
+          org.work.WorkItemClosed: {work_item_id: {subject: work_item_id}}
+        summary: The work item was completed or dropped while the hand-off waited; refuse it instead.
+      - name: work-item-moved
+        when_related: {via: work_item_id, predicate: at_position != input.taken_from}
+        error: org.work.WorkItemNotAtPosition
+        payload:
+          org.work.WorkItemNotAtPosition:
+            work_item_id: {subject: work_item_id}
+            position_id: input.taken_from
+        summary: >-
+          The work item left the offering position while the hand-off waited, through another
+          hand-off; refuse this one instead.
+      - name: accepted
+        moves: org.work.Handoff.accept
+        instance: handoff_id
+        sets:
+          answered_at: input.at
+        emits: [org.work.HandoffAccepted]
+        payload:
+          org.work.HandoffAccepted:
+            handoff_id: input.handoff_id
+            work_item_id: {subject: work_item_id}
+            from: {subject: from}
+            to: {subject: to}
+            at: input.at
+        affects:
+          - entity: org.work.WorkItem
+            where: work_item_id == subject.work_item_id
+            sets:
+              at_position: input.accepted_by
+        summary: The work item is at the receiving position; its state does not change.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.HandoffStateConflict
+        payload:
+          org.work.HandoffStateConflict:
+            handoff_id: input.handoff_id
+            state: {subject: state}
+        summary: A hand-off is answered once.
+
+  - name: org.work.RefuseHandoff
+    naming:
+      wire: refuse-handoff
+      display: Refuse a hand-off
+      summary: >-
+        The receiving position does not take the work item and says why. The work item stays at
+        the offering position.
+    input:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - name: refused_by
+        type: org.shared.PositionId
+        summary: The position that answers; it must be the one the hand-off is offered to.
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-handoff
+        unknown_instance: true
+        error: org.work.HandoffNotFound
+        payload:
+          org.work.HandoffNotFound: {handoff_id: input.handoff_id}
+      - name: not-the-receiver
+        when_subject: {predicate: {all: [state == Offered, to != input.refused_by]}}
+        error: org.work.NotTheReceivingPosition
+        payload:
+          org.work.NotTheReceivingPosition:
+            handoff_id: input.handoff_id
+            position_id: input.refused_by
+      - name: refused
+        moves: org.work.Handoff.refuse
+        instance: handoff_id
+        sets:
+          answered_at: input.at
+        emits: [org.work.HandoffRefused]
+        payload:
+          org.work.HandoffRefused:
+            handoff_id: input.handoff_id
+            work_item_id: {subject: work_item_id}
+            from: {subject: from}
+            to: {subject: to}
+            reason: input.reason
+            at: input.at
+        summary: The hand-off is Refused; the offering position still has the work item.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.HandoffStateConflict
+        payload:
+          org.work.HandoffStateConflict:
+            handoff_id: input.handoff_id
+            state: {subject: state}
+        summary: A hand-off is answered once.
+
+  # UNMAPPED: no source says who records that a commitment is met, slipped, renegotiated or
+  # released (the promising position, the beneficiary, or anyone accountable). The beneficiary
+  # is a union and a guard cannot read its variant (ESS-COMMAND-003), so the four commands
+  # below check no speaker. Open for the owner: an input for the speaking position and a rule
+  # for it.
+  - name: org.work.MakeCommitment
+    naming:
+      wire: make-commitment
+      display: Make a commitment
+    input:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: to, type: org.work.Beneficiary}
+      - {name: what, type: String}
+      - {name: due, type: Timestamp}
+      - {name: recurring, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-position
+        when_related: {via: input.by, exists: false}
+        error: org.work.PositionNotFound
+        payload:
+          org.work.PositionNotFound: {position_id: input.by}
+      - name: made
+        creates: org.work.Commitment
+        instance: commitment_id
+        sets:
+          by: input.by
+          to: input.to
+          what: input.what
+          due: input.due
+          recurring: input.recurring
+          made_at: input.at
+        emits: [org.work.CommitmentMade]
+        payload:
+          org.work.CommitmentMade:
+            commitment_id: input.commitment_id
+            by: input.by
+            to: input.to
+            what: input.what
+            due: input.due
+            recurring: input.recurring
+            at: input.at
+        summary: The commitment is Open.
+
+  # UNMAPPED: the condition for the edge Open → Slipped is not stated. Taken: a commitment
+  # slips only at or after its due date (CommitmentNotYetDue before it), and a command records
+  # it; nothing here slips a commitment by itself when the date passes.
+  - name: org.work.SlipCommitment
+    naming:
+      wire: slip-commitment
+      display: Record that a commitment slipped
+    input:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-commitment
+        unknown_instance: true
+        error: org.work.CommitmentNotFound
+        payload:
+          org.work.CommitmentNotFound: {commitment_id: input.commitment_id}
+      - name: not-yet-due
+        when_subject: {predicate: {all: [state == Open, due > input.at]}}
+        error: org.work.CommitmentNotYetDue
+        payload:
+          org.work.CommitmentNotYetDue:
+            commitment_id: input.commitment_id
+            due: {subject: due}
+      - name: slipped
+        moves: org.work.Commitment.slip
+        instance: commitment_id
+        sets:
+          slipped_at: input.at
+        emits: [org.work.CommitmentSlipped]
+        payload:
+          org.work.CommitmentSlipped:
+            commitment_id: input.commitment_id
+            by: {subject: by}
+            due: {subject: due}
+            at: input.at
+        summary: The commitment is Slipped; it still can be met or released.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.CommitmentStateConflict
+        payload:
+          org.work.CommitmentStateConflict:
+            commitment_id: input.commitment_id
+            state: {subject: state}
+        summary: Only an Open commitment slips.
+
+  # UNMAPPED: the design names a commitment "kept, broken or renegotiated"; the lifecycle has
+  # no edge for a renegotiation. Taken: a renegotiation sets a new due date on an Open or a
+  # Slipped commitment and changes no state, so a Slipped one stays Slipped. Open for the
+  # owner: whether a renegotiated Slipped commitment returns to Open (an edge the lifecycle
+  # does not have), and whether a new due date in the past is refused.
+  - name: org.work.RenegotiateCommitment
+    naming:
+      wire: renegotiate-commitment
+      display: Renegotiate the due date of a commitment
+    input:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: due, type: Timestamp}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-commitment
+        unknown_instance: true
+        error: org.work.CommitmentNotFound
+        payload:
+          org.work.CommitmentNotFound: {commitment_id: input.commitment_id}
+      - name: closed
+        when_subject: {predicate: {any: [state == Met, state == Released]}}
+        error: org.work.CommitmentClosed
+        payload:
+          org.work.CommitmentClosed: {commitment_id: input.commitment_id}
+      - name: renegotiated
+        updates: org.work.Commitment
+        instance: commitment_id
+        sets:
+          due: input.due
+        emits: [org.work.CommitmentRenegotiated]
+        payload:
+          org.work.CommitmentRenegotiated:
+            commitment_id: input.commitment_id
+            by: {subject: by}
+            due: input.due
+            at: input.at
+        summary: The commitment has the new due date; its state does not change.
+
+  - name: org.work.MeetCommitment
+    naming:
+      wire: meet-commitment
+      display: Record that a commitment was met
+    input:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-commitment
+        unknown_instance: true
+        error: org.work.CommitmentNotFound
+        payload:
+          org.work.CommitmentNotFound: {commitment_id: input.commitment_id}
+      - name: met
+        moves: org.work.Commitment.meet
+        instance: commitment_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.CommitmentMet]
+        payload:
+          org.work.CommitmentMet:
+            commitment_id: input.commitment_id
+            by: {subject: by}
+            at: input.at
+        summary: The commitment is Met, from Open or from Slipped.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.CommitmentStateConflict
+        payload:
+          org.work.CommitmentStateConflict:
+            commitment_id: input.commitment_id
+            state: {subject: state}
+        summary: A Met or Released commitment is not met again.
+
+  - name: org.work.ReleaseCommitment
+    naming:
+      wire: release-commitment
+      display: Release a commitment
+    input:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-commitment
+        unknown_instance: true
+        error: org.work.CommitmentNotFound
+        payload:
+          org.work.CommitmentNotFound: {commitment_id: input.commitment_id}
+      - name: released
+        moves: org.work.Commitment.release
+        instance: commitment_id
+        sets:
+          closed_at: input.at
+        emits: [org.work.CommitmentReleased]
+        payload:
+          org.work.CommitmentReleased:
+            commitment_id: input.commitment_id
+            by: {subject: by}
+            reason: input.reason
+            at: input.at
+        summary: The commitment is Released, from Open or from Slipped; it was not met.
+      - name: wrong-state
+        wrong_state: true
+        error: org.work.CommitmentStateConflict
+        payload:
+          org.work.CommitmentStateConflict:
+            commitment_id: input.commitment_id
+            state: {subject: state}
+        summary: A Met or Released commitment is not released.
+
+views:
+  - name: org.work.Requests
+    source: org.work.Request
+    consistency: read_your_writes
+    fields:
+      - {name: request_id, type: org.shared.RequestId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: from, type: org.work.Requester}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: what, type: String}
+      - {name: received_at, type: Timestamp}
+      - {name: answered_at, type: Optional<Timestamp>}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.work.Request.State}
+    naming:
+      wire: requests
+      display: Requests
+
+  - name: org.work.WorkItems
+    source: org.work.WorkItem
+    consistency: read_your_writes
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: request_id, type: Optional<org.shared.RequestId>}
+      - {name: process_id, type: Optional<org.shared.ProcessId>}
+      - {name: step_id, type: Optional<org.shared.StepId>}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.work.WorkItem.State}
+    naming:
+      wire: work-items
+      display: Work items
+
+  # The work a position has in front of it: every item at it that is not Done or Dropped.
+  - name: org.work.WorkAtPosition
+    source: org.work.WorkItem
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - at_position == param.position_id
+        - any: [state == Open, state == InProgress, state == Blocked]
+    fields:
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: request_id, type: Optional<org.shared.RequestId>}
+      - {name: process_id, type: Optional<org.shared.ProcessId>}
+      - {name: step_id, type: Optional<org.shared.StepId>}
+      - {name: at_position, type: org.shared.PositionId}
+      - {name: opened_at, type: Timestamp}
+      - {name: state, type: org.work.WorkItem.State}
+    naming:
+      wire: work-at-position
+      display: Work at a position
+
+  - name: org.work.Handoffs
+    source: org.work.Handoff
+    consistency: read_your_writes
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: offered_at, type: Timestamp}
+      - {name: answered_at, type: Optional<Timestamp>}
+      - {name: state, type: org.work.Handoff.State}
+    naming:
+      wire: handoffs
+      display: Hand-offs
+
+  # The seam as the receiving side sees it: every hand-off that waits for this position.
+  - name: org.work.HandoffsAwaiting
+    source: org.work.Handoff
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - to == param.position_id
+        - state == Offered
+    fields:
+      - {name: handoff_id, type: org.shared.HandoffId}
+      - {name: work_item_id, type: org.shared.WorkItemId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: offered_at, type: Timestamp}
+      - {name: state, type: org.work.Handoff.State}
+    naming:
+      wire: handoffs-awaiting
+      display: Hand-offs awaiting a position
+
+  - name: org.work.Commitments
+    source: org.work.Commitment
+    consistency: read_your_writes
+    fields:
+      - {name: commitment_id, type: org.shared.CommitmentId}
+      - {name: by, type: org.shared.PositionId}
+      - {name: to, type: org.work.Beneficiary}
+      - {name: what, type: String}
+      - {name: due, type: Timestamp}
+      - {name: recurring, type: Boolean}
+      - {name: made_at, type: Timestamp}
+      - {name: slipped_at, type: Optional<Timestamp>}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.work.Commitment.State}
+    naming:
+      wire: commitments
+      display: Commitments

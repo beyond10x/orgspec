@@ -1,0 +1,204 @@
+# The invented bakery takes its price decision back. A taken decision is never edited: a new
+# decision names it. The first new one is withdrawn, and the price decision stands (a second new
+# one may still name it). The second new one is decided, and the price decision becomes
+# Superseded in that step. A superseded decision refuses to be decided and withdrawn.
+#
+#   0241 party, 0242 organization, 0243 unit `shop`, 0244 decision class `prices`,
+#   0245 decision right, 0246 the price decision, 0247 the withdrawn one, 0248 the one that
+#   supersedes, 0251 position head-baker
+type: ess-scenario/7
+domain: org.decision
+scenario: bakery-decision-superseded
+summary: A decision that names a taken one opens beside it; withdrawn, it leaves the named one standing; decided, it makes the named one Superseded.
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.party.RegisterParty
+    input:
+      party_id: 00000000-0000-4000-8000-000000000241
+      kind: Organization
+      name: bakery
+      at: 2026-11-27T09:00:00Z
+    outcome: registered
+  - at: 2026-11-27T09:00:01Z
+    command: org.organization.FoundOrganization
+    input:
+      organization_id: 00000000-0000-4000-8000-000000000242
+      party_id: 00000000-0000-4000-8000-000000000241
+      name: bakery
+      purpose: Bakes bread and sells it over the counter.
+      form: Company
+      at: 2026-11-27T09:00:01Z
+    outcome: founded
+  - at: 2026-11-27T09:00:02Z
+    command: org.unit.FormUnit
+    input:
+      unit_id: 00000000-0000-4000-8000-000000000243
+      organization_id: 00000000-0000-4000-8000-000000000242
+      name: shop
+      nature: Line
+      basis: Offering
+      at: 2026-11-27T09:00:02Z
+    outcome: formed
+  - at: 2026-11-27T09:00:03Z
+    command: org.decision.DeclareDecisionClass
+    input:
+      class_id: 00000000-0000-4000-8000-000000000244
+      organization_id: 00000000-0000-4000-8000-000000000242
+      name: prices
+      reversible: true
+      at: 2026-11-27T09:00:03Z
+    outcome: declared
+  - at: 2026-11-27T09:00:04Z
+    command: org.decision.ProposeDecisionRight
+    input:
+      right_id: 00000000-0000-4000-8000-000000000245
+      class_id: 00000000-0000-4000-8000-000000000244
+      scope: 00000000-0000-4000-8000-000000000243
+      decider: {position: 00000000-0000-4000-8000-000000000251}
+      class_reversible: true
+      mode: Sole
+      consulted: []
+      informed: []
+      at: 2026-11-27T09:00:04Z
+    outcome: proposed
+  - at: 2026-11-27T09:00:05Z
+    command: org.decision.EnactDecisionRight
+    input: {right_id: 00000000-0000-4000-8000-000000000245, at: 2026-11-27T09:00:05Z}
+    outcome: enacted
+
+  # the price decision is taken
+  - at: 2026-11-27T09:00:06Z
+    command: org.decision.OpenDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000246
+      right_id: 00000000-0000-4000-8000-000000000245
+      question: What does a loaf cost from Monday?
+      options: ["3.20", "3.50", "3.80"]
+      at: 2026-11-27T09:00:06Z
+    outcome: opened
+  - at: 2026-11-27T09:00:07Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000246
+      chosen: "3.50"
+      decided_by: 00000000-0000-4000-8000-000000000251
+      at: 2026-11-27T09:00:07Z
+    outcome: decided
+
+  # a new decision names it and is withdrawn
+  - at: 2026-11-27T10:00:00Z
+    command: org.decision.OpenSupersedingDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000247
+      right_id: 00000000-0000-4000-8000-000000000245
+      question: Does the loaf go back to the old price?
+      options: ["yes", "no"]
+      supersedes: 00000000-0000-4000-8000-000000000246
+      at: 2026-11-27T10:00:00Z
+    outcome: opened
+    events:
+      - event: org.decision.DecisionOpened
+        payload:
+          decision_id: 00000000-0000-4000-8000-000000000247
+          class_id: 00000000-0000-4000-8000-000000000244
+          scope: 00000000-0000-4000-8000-000000000243
+          right_id: 00000000-0000-4000-8000-000000000245
+          at: 2026-11-27T10:00:00Z
+      - event: org.decision.SupersessionOpened
+        payload:
+          decision_id: 00000000-0000-4000-8000-000000000247
+          supersedes: 00000000-0000-4000-8000-000000000246
+          at: 2026-11-27T10:00:00Z
+  - at: 2026-11-27T10:00:01Z
+    command: org.decision.WithdrawDecision
+    input: {decision_id: 00000000-0000-4000-8000-000000000247, at: 2026-11-27T10:00:01Z}
+    outcome: withdrawn
+
+  # the price decision still stands, so a second new decision may name it
+  - at: 2026-11-27T11:00:00Z
+    command: org.decision.OpenSupersedingDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000248
+      right_id: 00000000-0000-4000-8000-000000000245
+      question: What does a loaf cost after the flour price went up?
+      options: ["3.80", "4.10"]
+      supersedes: 00000000-0000-4000-8000-000000000246
+      at: 2026-11-27T11:00:00Z
+    outcome: opened
+  - at: 2026-11-27T11:00:01Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000248
+      chosen: "4.10"
+      decided_by: 00000000-0000-4000-8000-000000000251
+      at: 2026-11-27T11:00:01Z
+    outcome: decided
+    events:
+      - event: org.decision.DecisionTaken
+        payload:
+          decision_id: 00000000-0000-4000-8000-000000000248
+          chosen: "4.10"
+          decided_by: 00000000-0000-4000-8000-000000000251
+          supersedes: 00000000-0000-4000-8000-000000000246
+          at: 2026-11-27T11:00:01Z
+
+  # a superseded decision is not edited, and is not superseded twice
+  - at: 2026-11-27T11:00:02Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000246
+      chosen: "3.20"
+      decided_by: 00000000-0000-4000-8000-000000000251
+      at: 2026-11-27T11:00:02Z
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000246, state: Superseded}
+    no_events: [org.decision.DecisionTaken]
+  - at: 2026-11-27T11:00:03Z
+    command: org.decision.WithdrawDecision
+    input: {decision_id: 00000000-0000-4000-8000-000000000246, at: 2026-11-27T11:00:03Z}
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000246, state: Superseded}
+    no_events: [org.decision.DecisionWithdrawn]
+  - at: 2026-11-27T11:00:04Z
+    command: org.decision.OpenSupersedingDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000249
+      right_id: 00000000-0000-4000-8000-000000000245
+      question: Does the first price come back?
+      options: ["yes", "no"]
+      supersedes: 00000000-0000-4000-8000-000000000246
+      at: 2026-11-27T11:00:04Z
+    outcome: superseded-decision-not-taken
+    error:
+      name: org.decision.SupersededDecisionNotTaken
+      fields: {supersedes: 00000000-0000-4000-8000-000000000246}
+    no_events: [org.decision.DecisionOpened, org.decision.SupersessionOpened]
+
+assert:
+  - view: org.decision.Decisions
+    contains:
+      decision_id: 00000000-0000-4000-8000-000000000246
+      chosen: "3.50"
+      closed_at: 2026-11-27T09:00:07Z
+      state: Superseded
+  - view: org.decision.Decisions
+    contains:
+      decision_id: 00000000-0000-4000-8000-000000000247
+      supersedes: 00000000-0000-4000-8000-000000000246
+      chosen: null
+      state: Withdrawn
+  - view: org.decision.Decisions
+    contains:
+      decision_id: 00000000-0000-4000-8000-000000000248
+      supersedes: 00000000-0000-4000-8000-000000000246
+      chosen: "4.10"
+      state: Decided
+  - view: org.decision.Decisions
+    counts:
+      at_least: 3
+      at_most: 3

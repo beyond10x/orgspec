@@ -1,0 +1,44 @@
+format: orgspec-type/1
+type: clinic
+origin: invented
+summary: A clinic whose care units each have one lead.
+vocabulary:
+  unit: department
+  offering: treatment
+  escalates: calls for
+kinds:
+  care_unit: { block: unit, summary: "A unit that treats patients.", nature: line }
+  ward:
+    block: unit
+    is: care_unit
+    summary: A care unit with beds.
+    attributes:
+      beds: { type: integer, required: true }
+  lead: { block: role, summary: "The role that leads a care unit." }
+rules:
+  - id: care_unit_has_one_lead
+    summary: Every care unit has exactly one position that plays a lead role.
+    rule: parts
+    match: { block: position, role_kind: lead }
+    per: { kind: care_unit }
+    min: 1
+    max: 1
+  - id: ward_is_small
+    summary: A ward has at most thirty beds. Counted, not a gate.
+    gate: false
+    rule: value
+    each: { kind: ward }
+    field: beds
+    max: 30
+kpis:
+  - id: beds_per_lead
+    summary: Beds of a ward per lead position.
+    block: unit
+    of_kind: ward
+    measures: quality
+    unit: beds
+    direction: lower
+extensions:
+  - domain: clinic.shift
+    extends: assignment
+    path: ess/3-people/shift.yaml

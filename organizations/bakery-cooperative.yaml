@@ -1,0 +1,63 @@
+format: orgspec-organization/1
+organization: bakery-cooperative
+type: cooperative
+origin: invented
+summary: A bakery owned by the twelve people who work in it.
+
+parts:
+  bakery:           { block: organization, form: cooperative, purpose: "Bake bread for the neighbourhood and give its members a living." }
+  members:          { block: unit, kind: assembly, in: bakery }
+  board:            { block: unit, kind: board, in: bakery }
+  oven:             { block: unit, nature: line, basis: process, in: bakery }
+  shop:             { block: unit, nature: line, basis: function, in: bakery }
+  chair_role:       { block: role, purpose: "Speaks for the board between its meetings." }
+  head_baker_role:  { block: role, purpose: "Plans the baking and answers for the bread." }
+  baker_role:       { block: role, purpose: "Bakes." }
+  shop_lead_role:   { block: role, purpose: "Runs the shop." }
+  seller_role:      { block: role, purpose: "Sells." }
+  chair:            { block: position, in: board, role: chair_role }
+  head_baker:       { block: position, in: oven, role: head_baker_role }
+  baker:            { block: position, in: oven, role: baker_role, seats: 5 }
+  shop_lead:        { block: position, in: shop, role: shop_lead_role }
+  seller:           { block: position, in: shop, role: seller_role, seats: 3 }
+  bread:            { block: offering, audience: external }
+  neighbours:       { block: relationship, tie: customer }
+  mill:             { block: relationship, tie: supplier }
+  statutes:         { block: decision_class, kind: constitutional }
+  prices:           { block: decision_class }
+  purchases:        { block: decision_class }
+  ovens:            { block: asset, class: physical, criticality: high }
+  baking:
+    block: process
+    steps:
+      - { name: mix,   role: baker_role,      activity: do }
+      - { name: check, role: head_baker_role, activity: review }
+      - { name: sell,  role: seller_role,     activity: do }
+  yearly:           { block: forum, convenes: members, every: 52w }
+  board_meeting:    { block: forum, convenes: board, every: 4w }
+
+links:
+  - { from: chair,      to: members,    carries: reports_to }
+  - { from: head_baker, to: chair,      carries: reports_to }
+  - { from: shop_lead,  to: chair,      carries: reports_to }
+  - { from: baker,      to: head_baker, carries: reports_to }
+  - { from: seller,     to: shop_lead,  carries: reports_to }
+  - { from: members,    to: statutes,   carries: decides, mode: majority }
+  - { from: board,      to: prices,     carries: decides, mode: consent }
+  - { from: board,      to: purchases,  carries: decides, mode: consent }
+  - { from: board,      to: head_baker, carries: delegates, class: purchases, limit: 2000 }
+  - { from: neighbours, to: bread,      carries: demand }
+  - { from: mill,       to: oven,       carries: serves }
+  - { from: head_baker, to: bread,      carries: accountable }
+  - { from: head_baker, to: ovens,      carries: accountable }
+  - { from: head_baker, to: baking,     carries: accountable }
+  - { from: baker,      to: bread,      carries: responsible }
+  - { from: seller,     to: bread,      carries: responsible }
+  - { from: baker,      to: seller,     carries: hands_off }
+  - { from: baker,      to: head_baker, carries: escalates, after: 1h }
+  - { from: seller,     to: shop_lead,  carries: escalates, after: 1h }
+  - { from: shop_lead,  to: board,      carries: escalates, after: 2d }
+  - { from: yearly,        to: statutes, carries: settles }
+  - { from: board_meeting, to: prices,   carries: settles }
+
+border: [seller]

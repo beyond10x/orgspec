@@ -1,0 +1,21 @@
+[package]
+name = "orgspec"
+description = "Checks organization designs and organization types against the orgspec building blocks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "orgspec"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_yaml_ng.workspace = true
+serde_json.workspace = true
+clap.workspace = true

@@ -1,0 +1,51 @@
+# Broken variant: the bakery's border names `counter`, and no such part is declared
+# (`border_without_part`).
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-border-without-part
+summary: A border entry naming a part the revision does not have is refused (BorderWithoutPart).
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000001
+      revision_id: {$instance: rev}
+      name: bakery
+      block: Organization
+      dimensions: []
+      at: 2026-11-27T09:00:02Z
+    outcome: added
+
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.PutOnBorder
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000006
+      at: 2026-11-27T09:00:03Z
+    outcome: no-such-part
+    error:
+      name: org.design.BorderWithoutPart
+    no_events: [org.design.PartBordered]
+
+assert:
+  - view: org.design.Parts
+    excludes:
+      revision_id: {$instance: rev}
+      on_border: true

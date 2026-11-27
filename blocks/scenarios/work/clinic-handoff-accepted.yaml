@@ -1,0 +1,100 @@
+# An invented clinic hands a patient's intake from the triage desk to a ward. The work item is
+# at triage; triage offers it to the ward; the ward accepts and names triage as the position it
+# takes the item from. The hand-off is Accepted and the item is at the ward, still Open. An
+# accepted hand-off is answered once: it refuses a second acceptance and a refusal.
+#
+#   0401 work item, 0402 hand-off, 0411 position triage, 0412 position ward
+type: ess-scenario/7
+domain: org.work
+scenario: clinic-handoff-accepted
+summary: The receiving position accepts a hand-off and the work item moves to it; an accepted hand-off refuses AcceptHandoff and RefuseHandoff (HandoffStateConflict).
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.work.OpenWorkItem
+    input:
+      work_item_id: 00000000-0000-4000-8000-000000000401
+      at_position: 00000000-0000-4000-8000-000000000411
+      at: 2026-11-27T09:00:00Z
+    outcome: opened
+  - at: 2026-11-27T09:00:01Z
+    command: org.work.OfferHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000402
+      work_item_id: 00000000-0000-4000-8000-000000000401
+      from: 00000000-0000-4000-8000-000000000411
+      to: 00000000-0000-4000-8000-000000000412
+      at: 2026-11-27T09:00:01Z
+    outcome: offered
+  - at: 2026-11-27T09:05:00Z
+    command: org.work.AcceptHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000402
+      accepted_by: 00000000-0000-4000-8000-000000000412
+      taken_from: 00000000-0000-4000-8000-000000000411
+      at: 2026-11-27T09:05:00Z
+    outcome: accepted
+    events:
+      - event: org.work.HandoffAccepted
+        payload:
+          handoff_id: 00000000-0000-4000-8000-000000000402
+          work_item_id: 00000000-0000-4000-8000-000000000401
+          from: 00000000-0000-4000-8000-000000000411
+          to: 00000000-0000-4000-8000-000000000412
+          at: 2026-11-27T09:05:00Z
+
+  # answered once
+  - at: 2026-11-27T09:05:01Z
+    command: org.work.AcceptHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000402
+      accepted_by: 00000000-0000-4000-8000-000000000412
+      taken_from: 00000000-0000-4000-8000-000000000411
+      at: 2026-11-27T09:05:01Z
+    outcome: wrong-state
+    error:
+      name: org.work.HandoffStateConflict
+      fields: {handoff_id: 00000000-0000-4000-8000-000000000402, state: Accepted}
+    no_events: [org.work.HandoffAccepted]
+  - at: 2026-11-27T09:05:02Z
+    command: org.work.RefuseHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000402
+      refused_by: 00000000-0000-4000-8000-000000000412
+      reason: The ward is full.
+      at: 2026-11-27T09:05:02Z
+    outcome: wrong-state
+    error:
+      name: org.work.HandoffStateConflict
+      fields: {handoff_id: 00000000-0000-4000-8000-000000000402, state: Accepted}
+    no_events: [org.work.HandoffRefused]
+
+assert:
+  - view: org.work.Handoffs
+    contains:
+      handoff_id: 00000000-0000-4000-8000-000000000402
+      work_item_id: 00000000-0000-4000-8000-000000000401
+      from: 00000000-0000-4000-8000-000000000411
+      to: 00000000-0000-4000-8000-000000000412
+      answered_at: 2026-11-27T09:05:00Z
+      state: Accepted
+  - view: org.work.WorkItems
+    contains:
+      work_item_id: 00000000-0000-4000-8000-000000000401
+      at_position: 00000000-0000-4000-8000-000000000412
+      state: Open
+  - view: org.work.WorkAtPosition
+    params:
+      position_id: 00000000-0000-4000-8000-000000000412
+    contains:
+      work_item_id: 00000000-0000-4000-8000-000000000401
+  - view: org.work.WorkAtPosition
+    params:
+      position_id: 00000000-0000-4000-8000-000000000411
+    counts:
+      at_most: 0
+  - view: org.work.HandoffsAwaiting
+    params:
+      position_id: 00000000-0000-4000-8000-000000000412
+    counts:
+      at_most: 0

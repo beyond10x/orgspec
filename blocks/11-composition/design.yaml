@@ -1,0 +1,996 @@
+# Design: the composed organization. Source: design/building-blocks.md, "The blocks" § 11
+# composition ("Parts (instances of blocks), links (reports to, accountable for, decides, hands
+# off to, escalates to), a border (the positions a party outside reaches), revisions. A design
+# names its type") and § "An organization design document" (the studio example and the structural
+# rules). A document is lowered to commands in a fixed order: create the design, open a revision,
+# put it under its type revisions, declare the parts, place them, declare the links, set the
+# border, commit. The design is valid when every command is accepted.
+#
+# Each structural rule a guard can express is a named error, raised by the first command that can
+# know it: a rule about one link when the link is added, a rule about what is missing when the
+# revision is committed. Each rule a guard cannot express is marked UNMAPPED with its rule id;
+# `orgspec check` holds it.
+domain: org.design
+
+summary: >-
+  A design composes building blocks into one concrete organization: parts (named instances of a
+  block), links (what one part is to another: reports to, accountable for, decides, hands off
+  to), a border (the parts a party outside reaches) and revisions. A revision is edited while it
+  is a draft and frozen when it is committed; a commit is refused while a structural rule is
+  broken. A design names no party: a part says whether humans, agents or both hold it, never who.
+
+naming:
+  wire: design
+  display: Organization design
+
+types:
+  - name: org.design.HeldBy
+    kind: enum
+    variants: [Human, Agent, Mixed]
+    naming:
+      summary: Whether the seats of a position part are held by humans, by agents or by both. Never who.
+
+  # The modes of a decision right, as org.decision names them. Declared here because a domain of
+  # another group is read through org.shared only; it belongs in org.shared (reported).
+  - name: org.design.DecisionMode
+    kind: enum
+    variants: [Sole, Advice, Consent, Majority, Unanimous]
+    naming:
+      summary: How the part a `decides` link starts at takes the decision.
+
+  # A part's block-specific dimensions (`nature: governing`, `tie: customer`, `form: company`,
+  # `agent_share: 0.5`, `every: 7d`, `convenes: build`) and the attributes its kind declares.
+  # UNMAPPED: the typed dimensions of each block. The block domains (layers 1-10) own them; this
+  # domain keeps them as named text, which no guard reads.
+  - name: org.design.Dimension
+    kind: struct
+    fields:
+      - {name: name, type: String}
+      - {name: value, type: String}
+
+entities:
+  - name: org.design.Design
+    naming:
+      summary: One organization as designed, real or invented. Its content is the parts and links of its revisions.
+    identity:
+      name: design_id
+      type: org.shared.DesignId
+    fields:
+      - {name: name, type: org.shared.Name}
+      - name: organization_id
+        type: Optional<org.shared.OrganizationId>
+        summary: The organization the design describes. Absent for an invented one.
+      - {name: created_at, type: Timestamp}
+    relations:
+      - {name: revisions, kind: owns, target: org.design.DesignRevision, cardinality: many, via: design_id}
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  # UNMAPPED: the type revisions could sit on the design; design/organization-types.md
+  # § "Checking" says "org.design names the type revision a design was committed under". Taken:
+  # on the design revision (`under`), so a committed revision keeps the type revisions it was
+  # checked with when a later one is put under newer ones. Open question for the owner.
+  - name: org.design.DesignRevision
+    naming:
+      summary: One version of a design's parts, links and border. Edited while Draft, frozen when Committed.
+    identity:
+      name: revision_id
+      type: org.shared.DesignRevisionId
+    fields:
+      - {name: design_id, type: org.shared.DesignId}
+      - name: number
+        type: Integer
+        summary: 1 for the first revision of a design, one more for each next. Minted.
+      - name: under
+        type: List<org.shared.TypeRevisionId>
+        summary: The type revisions the revision is checked with. Empty, the design is of type `base`.
+      - {name: opened_at, type: Timestamp}
+      - {name: committed_at, type: Optional<Timestamp>}
+    invariants:
+      - number >= 1
+    relations:
+      - {name: types, kind: references, target: org.type.TypeRevision, cardinality: many, via: under}
+      - {name: parts, kind: owns, target: org.design.Part, cardinality: many, via: revision_id}
+      - {name: links, kind: owns, target: org.design.Link, cardinality: many, via: revision_id}
+    lifecycle:
+      initial: Draft
+      states:
+        - {name: Draft, summary: "Takes parts, links and border entries."}
+        - {name: Committed, summary: "Frozen and valid by every rule a guard holds. An experiment may simulate it."}
+        - {name: Superseded, summary: "Frozen, and a later revision of the design is committed."}
+      terminal: [Superseded]
+      transitions:
+        - {name: commit, from: [Draft], to: Committed}
+        - {name: supersede, from: [Committed], to: Superseded}
+
+  # A named instance of a block. `in` places a unit in an organization or a unit and a position in
+  # a unit; `role` names the role part a position plays.
+  # UNMAPPED: the design names no removal of a part or a link. Taken: none; a changed design is a
+  # new revision.
+  - name: org.design.Part
+    naming:
+      summary: A named instance of a building block inside one design revision.
+    identity:
+      name: part_id
+      type: org.shared.PartId
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: block, type: org.type.Block}
+      # UNMAPPED: "`kind` on a part is a kind of the design's type". The kinds are rows of the type
+      # revisions in `under`, two hops from the part; a guard reads one. Stored and not checked
+      # here; `orgspec check` holds it with `kind_dimension_mismatch` and `unknown_attribute`.
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: in_part_id, type: Optional<org.shared.PartId>}
+      - {name: role_part_id, type: Optional<org.shared.PartId>}
+      - name: held_by
+        type: Optional<org.design.HeldBy>
+        summary: Of a position part. Absent reads as Human.
+      - name: seats
+        type: Optional<Integer>
+        summary: Of a position part, at least 1. Absent reads as 1.
+      - {name: dimensions, type: List<org.design.Dimension>}
+      - name: on_border
+        type: Boolean
+        summary: A party outside the organization reaches this part.
+    relations:
+      - {name: in, kind: references, target: org.design.Part, cardinality: one, via: in_part_id}
+      - {name: role, kind: references, target: org.design.Part, cardinality: one, via: role_part_id}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  # What one part is to another part of the same revision. `carries` is a name, so a type adds its
+  # own: the blocks' names are reports_to, answers_to, accountable, responsible, consulted,
+  # informed, decides, delegates, settles, demand, serves, hands_off, escalates and funds.
+  # UNMAPPED: `unknown_carries` ("a link carries something neither the list above nor the type
+  # declares"). The names a type adds are rows of the type revisions in `under`, two hops from the
+  # link; a guard reads one. `orgspec check` holds it.
+  - name: org.design.Link
+    naming:
+      summary: What one part is to another part of the same design revision.
+    identity:
+      name: link_id
+      type: org.shared.LinkId
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: from_part_id, type: org.shared.PartId}
+      - {name: to_part_id, type: org.shared.PartId}
+      - {name: carries, type: org.shared.Name}
+      - name: scope_part_id
+        type: Optional<org.shared.PartId>
+        summary: The unit part a `decides` link is limited to. Absent, the whole organization.
+      - name: class_part_id
+        type: Optional<org.shared.PartId>
+        summary: The decision class part a `delegates` link passes on.
+      - name: limit
+        type: Optional<org.shared.Money>
+        summary: The most a `delegates` link lets its target decide.
+      - {name: mode, type: Optional<org.design.DecisionMode>}
+      - name: after
+        type: Optional<Duration>
+        summary: How long an `escalates` link waits before it is taken.
+    relations:
+      - {name: from, kind: references, target: org.design.Part, cardinality: one, via: from_part_id}
+      - {name: to, kind: references, target: org.design.Part, cardinality: one, via: to_part_id}
+      - {name: scope, kind: references, target: org.design.Part, cardinality: one, via: scope_part_id}
+      - {name: class, kind: references, target: org.design.Part, cardinality: one, via: class_part_id}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+errors:
+  - name: org.design.NoSuchDesign
+    summary: No design has this id, and nothing changed.
+  - name: org.design.NoSuchRevision
+    summary: No design revision has this id, and nothing changed.
+  - name: org.design.DraftRevisionOpen
+    summary: The design already has a draft revision, and no second one was opened.
+  - name: org.design.RevisionNotDraft
+    summary: The revision is committed or superseded, so it takes no change, and nothing changed.
+  - name: org.design.NoSuchTypeRevision
+    summary: No type revision has this id, and nothing changed.
+  - name: org.design.TypeRevisionNotPublished
+    summary: The type revision is still a draft, so no design is checked with it, and nothing changed.
+  - name: org.design.NoSuchPart
+    summary: No part of this revision has this id, and nothing changed.
+  - name: org.design.PartNameTaken
+    summary: The revision already has a part of this name, and nothing was added.
+  - name: org.design.InvalidSeats
+    summary: A position has at least one seat, and nothing was added.
+  - name: org.design.PlacementNotAllowed
+    summary: Only a unit part and a position part lie in another part, and nothing changed.
+  - name: org.design.RoleNeedsPosition
+    summary: Only a position part plays a role, and nothing changed.
+  - name: org.design.LinkExists
+    summary: The revision already has this link, and nothing was added.
+  - name: org.design.ScopeNotUnit
+    summary: The scope of a link is a unit part, and the part named is not one; nothing was added.
+  - name: org.design.ClassNotDecisionClass
+    summary: The class of a link is a decision class part, and the part named is not one; nothing was added.
+  # One error per structural rule of design/building-blocks.md, named after the rule's id.
+  - name: org.design.EmptyDesign
+    summary: The revision has no part, so it was not committed.
+  - name: org.design.UnknownLinkParts
+    summary: "`unknown_link_parts`: a link's from, to, scope or class names no part of the revision, and nothing was added."
+  - name: org.design.PartOutsideOrganization
+    summary: "`part_outside_organization`: a unit lies in no organization or unit part, or a position in no unit part; nothing changed."
+  - name: org.design.UnknownRole
+    summary: "`unknown_role`: the role a position plays names no role part of the revision, and nothing changed."
+  - name: org.design.ReportingCycle
+    summary: "`reporting_cycle`: a part reports to itself, and nothing was added."
+  - name: org.design.SubjectWithoutAccountable
+    summary: "`subject_without_accountable`: an offering, asset, goal, process, policy, budget or agreement part has no incoming accountable link, so the revision was not committed."
+  - name: org.design.SubjectWithTwoAccountables
+    summary: "`subject_with_two_accountables`: the part already has an incoming accountable link, and no second one was added."
+  - name: org.design.AccountableNotPosition
+    summary: "`accountable_not_position`: an accountable link starts at a position part, and the part named is not one; nothing was added."
+  - name: org.design.AgentWithoutAccountableHuman
+    summary: "`agent_without_accountable_human`: a position held by agents, alone or mixed, has no answers_to link, so the revision was not committed."
+  - name: org.design.ClassWithoutDecider
+    summary: "`class_without_decider`: a decision class part has no incoming decides link, so the revision was not committed."
+  - name: org.design.ClassWithTwoDeciders
+    summary: "`class_with_two_deciders`: the class already has a decides link of the same scope, and no second one was added."
+  - name: org.design.DeciderNotAllowed
+    summary: "`decider_not_allowed`: a decides link starts at a position part or a unit part, and the part named is neither; nothing was added."
+  - name: org.design.DelegationWithoutRight
+    summary: "`delegation_without_right`: a delegates link names a class its from part neither decides nor holds by a delegation, so the revision was not committed."
+  - name: org.design.DemandWithoutOffering
+    summary: "`demand_without_offering`: a demand link runs from a relationship part to an offering part, and this one does not; nothing was added."
+  - name: org.design.BorderWithoutPart
+    summary: "`border_without_part`: a border entry names no part of the revision, and nothing changed."
+
+events:
+  - name: org.design.DesignCreated
+    fields:
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: name, type: org.shared.Name}
+      - {name: organization_id, type: Optional<org.shared.OrganizationId>}
+      - {name: at, type: Timestamp}
+  - name: org.design.RevisionOpened
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: number, type: Integer}
+      - {name: at, type: Timestamp}
+  - name: org.design.RevisionPutUnderType
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: type_revision_id, type: org.shared.TypeRevisionId}
+      - {name: at, type: Timestamp}
+  - name: org.design.PartAdded
+    fields:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: block, type: org.type.Block}
+      - {name: at, type: Timestamp}
+  - name: org.design.PartPlaced
+    fields:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: in_part_id, type: org.shared.PartId}
+      - {name: at, type: Timestamp}
+  - name: org.design.PartRoleSet
+    fields:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: role_part_id, type: org.shared.PartId}
+      - {name: at, type: Timestamp}
+  - name: org.design.LinkAdded
+    fields:
+      - {name: link_id, type: org.shared.LinkId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: from_part_id, type: org.shared.PartId}
+      - {name: to_part_id, type: org.shared.PartId}
+      - {name: carries, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+  - name: org.design.PartBordered
+    fields:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: at, type: Timestamp}
+  - name: org.design.RevisionCommitted
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.design.CreateDesign
+    naming:
+      display: Create a design
+    input:
+      - {name: name, type: org.shared.Name}
+      - {name: organization_id, type: Optional<org.shared.OrganizationId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: created
+        creates: org.design.Design
+        instance: design_id
+        sets:
+          name: input.name
+          organization_id: input.organization_id
+          created_at: input.at
+        emits: [org.design.DesignCreated]
+        payload:
+          org.design.DesignCreated:
+            design_id: {generated: true}
+            name: input.name
+            organization_id: input.organization_id
+            at: input.at
+
+  # One draft per design at a time, so the revisions of a design are in one order. A new revision
+  # starts empty: it is one lowered document.
+  # UNMAPPED: "the number is 1 for the first revision and one more for each next". `generated`
+  # leaves the value to the implementation, and a guard counts no rows; the reference target mints
+  # another value. The order of revisions is read from `opened_at`.
+  - name: org.design.OpenRevision
+    naming:
+      display: Open a draft revision of a design
+    input:
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-design
+        when_related: {via: input.design_id, exists: false}
+        error: org.design.NoSuchDesign
+      - name: draft-open
+        when_related:
+          entity: org.design.DesignRevision
+          where:
+            all:
+              - design_id == input.design_id
+              - state == Draft
+          exists: true
+        error: org.design.DraftRevisionOpen
+      - name: opened
+        creates: org.design.DesignRevision
+        instance: revision_id
+        sets:
+          design_id: input.design_id
+          number: {generated: true}
+          under: []
+          opened_at: input.at
+        emits: [org.design.RevisionOpened]
+        payload:
+          org.design.RevisionOpened:
+            revision_id: {generated: true}
+            design_id: input.design_id
+            number: {generated: true}
+            at: input.at
+
+  # `type:` of a design document: one more type revision the draft is checked with. A command of
+  # its own, not a list on OpenRevision: a guard over the rows an input list names is refused
+  # beside a guard over another related row.
+  - name: org.design.PutUnderType
+    naming:
+      display: Put a design revision under a type revision
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: type_revision_id, type: org.shared.TypeRevisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        unknown_instance: true
+        error: org.design.NoSuchRevision
+      - name: revision-not-draft
+        when_subject: {predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: no-such-type-revision
+        when_related: {via: input.type_revision_id, exists: false}
+        error: org.design.NoSuchTypeRevision
+      - name: type-revision-is-draft
+        when_related: {via: input.type_revision_id, predicate: state == Draft}
+        error: org.design.TypeRevisionNotPublished
+      - name: put
+        updates: org.design.DesignRevision
+        instance: revision_id
+        sets:
+          under: {append: input.type_revision_id}
+        emits: [org.design.RevisionPutUnderType]
+        payload:
+          org.design.RevisionPutUnderType:
+            revision_id: input.revision_id
+            type_revision_id: input.type_revision_id
+            at: input.at
+
+  # Declare a part. A new part lies in no part, plays no role and is off the border; PlacePart,
+  # SetRole and PutOnBorder set those after the part they name exists. `unknown_block` needs no
+  # guard: a block outside the list is not a value of org.type.Block.
+  - name: org.design.AddPart
+    naming:
+      display: Add a part
+    input:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: block, type: org.type.Block}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: held_by, type: Optional<org.design.HeldBy>}
+      - {name: seats, type: Optional<Integer>}
+      - {name: dimensions, type: List<org.design.Dimension>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: invalid-seats
+        when:
+          all:
+            - defined(seats)
+            - seats < 1
+        error: org.design.InvalidSeats
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.design.NoSuchRevision
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: name-taken
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - name == input.name
+          exists: true
+        error: org.design.PartNameTaken
+      - name: added
+        creates: org.design.Part
+        instance: part_id
+        sets:
+          revision_id: input.revision_id
+          name: input.name
+          block: input.block
+          kind: input.kind
+          held_by: input.held_by
+          seats: input.seats
+          dimensions: input.dimensions
+          on_border: false
+        emits: [org.design.PartAdded]
+        payload:
+          org.design.PartAdded:
+            part_id: input.part_id
+            revision_id: input.revision_id
+            name: input.name
+            block: input.block
+            at: input.at
+
+  # `in` of a design document: a unit lies in an organization or a unit, a position in a unit.
+  # UNMAPPED: the design names no rule for a cycle of `in` (a unit in a unit in the first) and
+  # says only "units form a tree". A guard follows no chain of rows. Taken: a part in itself is
+  # refused as `part_outside_organization`; a longer cycle is left to `orgspec check`.
+  # UNMAPPED: the design names no rule for `in` on a part that is neither a unit nor a position.
+  # Taken: refused as PlacementNotAllowed (default deny).
+  - name: org.design.PlacePart
+    naming:
+      display: Place a part in another part
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: part_id, type: org.shared.PartId}
+      - {name: in_part_id, type: org.shared.PartId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: in-itself
+        when: part_id == in_part_id
+        error: org.design.PartOutsideOrganization
+      - name: no-such-part
+        unknown_instance: true
+        error: org.design.NoSuchPart
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.design.NoSuchRevision
+      - name: missing-part
+        when_related: {via: input.part_id, exists: false}
+        error: org.design.NoSuchPart
+      - name: no-such-in-part
+        when_related: {via: input.in_part_id, exists: false}
+        error: org.design.PartOutsideOrganization
+      - name: foreign-part
+        when_related: {via: input.part_id, predicate: revision_id != input.revision_id}
+        error: org.design.NoSuchPart
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: foreign-in-part
+        when_related: {via: input.in_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.PartOutsideOrganization
+      - name: not-placeable
+        when_related:
+          via: input.part_id
+          predicate:
+            block: {not_in: [Unit, Position]}
+        error: org.design.PlacementNotAllowed
+      - name: unit-outside-organization
+        when_related:
+          all:
+            - {via: input.part_id, predicate: block == Unit}
+            - via: input.in_part_id
+              predicate:
+                block: {not_in: [Organization, Unit]}
+        error: org.design.PartOutsideOrganization
+      - name: position-outside-unit
+        when_related:
+          all:
+            - {via: input.part_id, predicate: block == Position}
+            - {via: input.in_part_id, predicate: block != Unit}
+        error: org.design.PartOutsideOrganization
+      - name: placed
+        updates: org.design.Part
+        instance: part_id
+        sets:
+          in_part_id: input.in_part_id
+        emits: [org.design.PartPlaced]
+        payload:
+          org.design.PartPlaced:
+            part_id: input.part_id
+            in_part_id: input.in_part_id
+            at: input.at
+
+  # `role` of a design document: the role part a position plays.
+  # UNMAPPED: `unknown_role` for a position that names no role at all. The rule's text ("a
+  # position's `role` names no role part") does not say whether every position names one. Taken:
+  # only a named role is checked, here; a commit does not ask for one. Open question for the owner.
+  - name: org.design.SetRole
+    naming:
+      display: Let a position part play a role part
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: part_id, type: org.shared.PartId}
+      - {name: role_part_id, type: org.shared.PartId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-part
+        unknown_instance: true
+        error: org.design.NoSuchPart
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.design.NoSuchRevision
+      - name: missing-part
+        when_related: {via: input.part_id, exists: false}
+        error: org.design.NoSuchPart
+      - name: no-such-role-part
+        when_related: {via: input.role_part_id, exists: false}
+        error: org.design.UnknownRole
+      - name: foreign-part
+        when_related: {via: input.part_id, predicate: revision_id != input.revision_id}
+        error: org.design.NoSuchPart
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: foreign-role-part
+        when_related: {via: input.role_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.UnknownRole
+      - name: not-a-position
+        when_related: {via: input.part_id, predicate: block != Position}
+        error: org.design.RoleNeedsPosition
+      - name: not-a-role
+        when_related: {via: input.role_part_id, predicate: block != Role}
+        error: org.design.UnknownRole
+      - name: set
+        updates: org.design.Part
+        instance: part_id
+        sets:
+          role_part_id: input.role_part_id
+        emits: [org.design.PartRoleSet]
+        payload:
+          org.design.PartRoleSet:
+            part_id: input.part_id
+            role_part_id: input.role_part_id
+            at: input.at
+
+  # Declare a link. Both ends, the scope and the class are parts of this revision.
+  # UNMAPPED: `reporting_cycle` longer than one part, and `escalation_dead_end` ("a chain of
+  # escalates links closes a cycle, or ends at a part that decides no class"). A guard follows no
+  # chain of rows; `orgspec check` holds both. Only a part reporting to itself is refused here.
+  # UNMAPPED: `decider_not_allowed` asks for "a position or a governing unit". A unit part's
+  # nature is named text in `dimensions`, which no guard reads. Taken: a decides link from a part
+  # that is neither a position nor a unit is refused here; a unit that is not governing is left to
+  # `orgspec check`.
+  # UNMAPPED: `delegation_exceeds_limit` ("a limit above the limit its from part holds for the
+  # class"). ESS has no guard that compares an input with the limit of the link the from part
+  # holds, found through the class; `orgspec check` holds it.
+  # UNMAPPED: the design names no rule for a scope that is no unit part or a class that is no
+  # decision class part. Taken: refused as ScopeNotUnit and ClassNotDecisionClass (default deny).
+  - name: org.design.AddLink
+    naming:
+      display: Add a link
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: from_part_id, type: org.shared.PartId}
+      - {name: to_part_id, type: org.shared.PartId}
+      - {name: carries, type: org.shared.Name}
+      - {name: scope_part_id, type: Optional<org.shared.PartId>}
+      - {name: class_part_id, type: Optional<org.shared.PartId>}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: mode, type: Optional<org.design.DecisionMode>}
+      - {name: after, type: Optional<Duration>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: reports-to-itself
+        when:
+          all:
+            - from_part_id == to_part_id
+            - carries == "reports_to"
+        error: org.design.ReportingCycle
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.design.NoSuchRevision
+      - name: unknown-from-part
+        when_related: {via: input.from_part_id, exists: false}
+        error: org.design.UnknownLinkParts
+      - name: unknown-to-part
+        when_related: {via: input.to_part_id, exists: false}
+        error: org.design.UnknownLinkParts
+      - name: unknown-scope-part
+        when_related: {via: input.scope_part_id, exists: false}
+        error: org.design.UnknownLinkParts
+      - name: unknown-class-part
+        when_related: {via: input.class_part_id, exists: false}
+        error: org.design.UnknownLinkParts
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: foreign-from-part
+        when_related: {via: input.from_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.UnknownLinkParts
+      - name: foreign-to-part
+        when_related: {via: input.to_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.UnknownLinkParts
+      - name: foreign-scope-part
+        when_related: {via: input.scope_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.UnknownLinkParts
+      - name: foreign-class-part
+        when_related: {via: input.class_part_id, predicate: revision_id != input.revision_id}
+        error: org.design.UnknownLinkParts
+      - name: scope-not-unit
+        when_related: {via: input.scope_part_id, predicate: block != Unit}
+        error: org.design.ScopeNotUnit
+      - name: class-not-decision-class
+        when_related: {via: input.class_part_id, predicate: block != DecisionClass}
+        error: org.design.ClassNotDecisionClass
+      - name: accountable-not-position
+        when: carries == "accountable"
+        when_related: {via: input.from_part_id, predicate: block != Position}
+        error: org.design.AccountableNotPosition
+      - name: decider-not-allowed
+        when: carries == "decides"
+        when_related:
+          via: input.from_part_id
+          predicate:
+            block: {not_in: [Position, Unit]}
+        error: org.design.DeciderNotAllowed
+      - name: demand-not-from-relationship
+        when: carries == "demand"
+        when_related: {via: input.from_part_id, predicate: block != Relationship}
+        error: org.design.DemandWithoutOffering
+      - name: demand-not-to-offering
+        when: carries == "demand"
+        when_related: {via: input.to_part_id, predicate: block != Offering}
+        error: org.design.DemandWithoutOffering
+      - name: second-accountable
+        when: carries == "accountable"
+        when_related:
+          entity: org.design.Link
+          where:
+            all:
+              - to_part_id == input.to_part_id
+              - carries == "accountable"
+          exists: true
+        error: org.design.SubjectWithTwoAccountables
+      - name: second-decider-of-the-whole
+        when:
+          all:
+            - carries == "decides"
+            - not defined(scope_part_id)
+        when_related:
+          entity: org.design.Link
+          where:
+            all:
+              - to_part_id == input.to_part_id
+              - carries == "decides"
+              - not defined(scope_part_id)
+          exists: true
+        error: org.design.ClassWithTwoDeciders
+      - name: second-decider-of-the-scope
+        when:
+          all:
+            - carries == "decides"
+            - defined(scope_part_id)
+        when_related:
+          entity: org.design.Link
+          where:
+            all:
+              - to_part_id == input.to_part_id
+              - carries == "decides"
+              - defined(scope_part_id)
+              - scope_part_id == input.scope_part_id
+          exists: true
+        error: org.design.ClassWithTwoDeciders
+      - name: exists
+        when_related:
+          entity: org.design.Link
+          where:
+            all:
+              - from_part_id == input.from_part_id
+              - to_part_id == input.to_part_id
+              - carries == input.carries
+          exists: true
+        error: org.design.LinkExists
+      - name: added
+        creates: org.design.Link
+        instance: link_id
+        sets:
+          revision_id: input.revision_id
+          from_part_id: input.from_part_id
+          to_part_id: input.to_part_id
+          carries: input.carries
+          scope_part_id: input.scope_part_id
+          class_part_id: input.class_part_id
+          limit: input.limit
+          mode: input.mode
+          after: input.after
+        emits: [org.design.LinkAdded]
+        payload:
+          org.design.LinkAdded:
+            link_id: {generated: true}
+            revision_id: input.revision_id
+            from_part_id: input.from_part_id
+            to_part_id: input.to_part_id
+            carries: input.carries
+            at: input.at
+
+  # `border` of a design document: a party outside the organization reaches this part.
+  # UNMAPPED: the design calls the border "the positions a party outside reaches" and lists no
+  # structural rule that refuses another block on it. Taken: any part of the revision.
+  - name: org.design.PutOnBorder
+    naming:
+      display: Put a part on the border
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: part_id, type: org.shared.PartId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-part
+        unknown_instance: true
+        error: org.design.BorderWithoutPart
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.design.NoSuchRevision
+      - name: missing-part
+        when_related: {via: input.part_id, exists: false}
+        error: org.design.BorderWithoutPart
+      - name: foreign-part
+        when_related: {via: input.part_id, predicate: revision_id != input.revision_id}
+        error: org.design.BorderWithoutPart
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.design.RevisionNotDraft
+      - name: bordered
+        updates: org.design.Part
+        instance: part_id
+        sets:
+          on_border: true
+        emits: [org.design.PartBordered]
+        payload:
+          org.design.PartBordered:
+            part_id: input.part_id
+            revision_id: input.revision_id
+            at: input.at
+
+  # Freeze the draft. Refused while a rule about what is missing is broken: no part, a unit or a
+  # position that lies nowhere, a subject nobody is accountable for, a decision class nobody
+  # decides, an agent-held position that answers to nobody, a delegation of a class its giver does
+  # not hold. The revision of the same design that was committed before is superseded by the same
+  # outcome.
+  # UNMAPPED: `agent_without_accountable_human` beyond the first link ("an answers_to chain that
+  # ends at a position held by humans"). A guard follows no chain of rows. Taken: a position held
+  # by agents, alone or mixed, with no outgoing answers_to link is refused here; where the chain
+  # ends is left to `orgspec check`.
+  # UNMAPPED: `unreachable_parts` ("no link, no in, role or convenes, and no border entry names
+  # the part"). `convenes` is named text in `dimensions`, so a unit only a forum convenes cannot
+  # be told from an unreachable one. `orgspec check` holds it.
+  # UNMAPPED: the design says a refusal is printed as "the rule id and the part". An error payload
+  # read from the first offending row is not interpreted by the reference target yet, so an error
+  # here carries no part name.
+  - name: org.design.CommitRevision
+    naming:
+      display: Commit a design revision
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        unknown_instance: true
+        error: org.design.NoSuchRevision
+      - name: empty
+        when_related:
+          entity: org.design.Part
+          where: revision_id == input.revision_id
+          exists: false
+        error: org.design.EmptyDesign
+      - name: unit-outside-organization
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - block == Unit
+              - not defined(in_part_id)
+          exists: true
+        error: org.design.PartOutsideOrganization
+      - name: position-outside-unit
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - block == Position
+              - not defined(in_part_id)
+          exists: true
+        error: org.design.PartOutsideOrganization
+      - name: subject-without-accountable
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - block: {in: [Offering, Asset, Goal, Process, Policy, Budget, Agreement]}
+              - not:
+                  exists:
+                    in: {entity: org.design.Link}
+                    as: link
+                    that:
+                      all:
+                        - link.to_part_id == part_id
+                        - link.carries == "accountable"
+          exists: true
+        error: org.design.SubjectWithoutAccountable
+      - name: class-without-decider
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - block == DecisionClass
+              - not:
+                  exists:
+                    in: {entity: org.design.Link}
+                    as: link
+                    that:
+                      all:
+                        - link.to_part_id == part_id
+                        - link.carries == "decides"
+          exists: true
+        error: org.design.ClassWithoutDecider
+      - name: agent-without-answers-to
+        when_related:
+          entity: org.design.Part
+          where:
+            all:
+              - revision_id == input.revision_id
+              - block == Position
+              - defined(held_by)
+              - held_by: {in: [Agent, Mixed]}
+              - not:
+                  exists:
+                    in: {entity: org.design.Link}
+                    as: link
+                    that:
+                      all:
+                        - link.from_part_id == part_id
+                        - link.carries == "answers_to"
+          exists: true
+        error: org.design.AgentWithoutAccountableHuman
+      - name: delegation-without-right
+        when_related:
+          entity: org.design.Link
+          where:
+            all:
+              - revision_id == input.revision_id
+              - carries == "delegates"
+              - not:
+                  exists:
+                    in: {entity: org.design.Link}
+                    as: right
+                    that:
+                      all:
+                        - right.from_part_id == from_part_id
+                        - right.to_part_id == class_part_id
+                        - right.carries == "decides"
+              - not:
+                  exists:
+                    in: {entity: org.design.Link}
+                    as: given
+                    that:
+                      all:
+                        - given.to_part_id == from_part_id
+                        - given.class_part_id == class_part_id
+                        - given.carries == "delegates"
+          exists: true
+        error: org.design.DelegationWithoutRight
+      - name: committed
+        moves: org.design.DesignRevision.commit
+        instance: revision_id
+        sets:
+          committed_at: input.at
+        affects:
+          - entity: org.design.DesignRevision
+            where:
+              all:
+                - design_id == subject.design_id
+                - state == Committed
+            moves: org.design.DesignRevision.supersede
+        emits: [org.design.RevisionCommitted]
+        payload:
+          org.design.RevisionCommitted:
+            revision_id: input.revision_id
+            design_id: {subject: design_id}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.design.RevisionNotDraft
+
+views:
+  - name: org.design.Designs
+    source: org.design.Design
+    consistency: read_your_writes
+    fields:
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: name, type: org.shared.Name}
+      - {name: organization_id, type: Optional<org.shared.OrganizationId>}
+      - {name: created_at, type: Timestamp}
+
+  - name: org.design.Revisions
+    source: org.design.DesignRevision
+    consistency: read_your_writes
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: design_id, type: org.shared.DesignId}
+      - {name: number, type: Integer}
+      - {name: under, type: List<org.shared.TypeRevisionId>}
+      - {name: opened_at, type: Timestamp}
+      - {name: committed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.design.DesignRevision.State}
+
+  - name: org.design.Parts
+    source: org.design.Part
+    consistency: read_your_writes
+    fields:
+      - {name: part_id, type: org.shared.PartId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: block, type: org.type.Block}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: in_part_id, type: Optional<org.shared.PartId>}
+      - {name: role_part_id, type: Optional<org.shared.PartId>}
+      - {name: held_by, type: Optional<org.design.HeldBy>}
+      - {name: seats, type: Optional<Integer>}
+      - {name: dimensions, type: List<org.design.Dimension>}
+      - {name: on_border, type: Boolean}
+
+  # What is what to what: one row per link of a revision. No row, no link.
+  - name: org.design.Links
+    source: org.design.Link
+    consistency: read_your_writes
+    params:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+    filter: revision_id == param.revision_id
+    fields:
+      - {name: link_id, type: org.shared.LinkId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: from_part_id, type: org.shared.PartId}
+      - name: from_name
+        type: Optional<org.shared.Name>
+        field: {related: {via: from_part_id, field: name}}
+      - {name: to_part_id, type: org.shared.PartId}
+      - name: to_name
+        type: Optional<org.shared.Name>
+        field: {related: {via: to_part_id, field: name}}
+      - {name: carries, type: org.shared.Name}
+      - {name: scope_part_id, type: Optional<org.shared.PartId>}
+      - {name: class_part_id, type: Optional<org.shared.PartId>}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: mode, type: Optional<org.design.DecisionMode>}
+      - {name: after, type: Optional<Duration>}

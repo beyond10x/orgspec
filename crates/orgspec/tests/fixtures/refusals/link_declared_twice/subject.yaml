@@ -1,0 +1,8 @@
+format: orgspec-type/1
+type: upper
+origin: invented
+extends: [lower]
+summary: Declares a link the blocks have and a link the extended type has.
+links:
+  decides: { summary: "Somebody decides." }
+  curates: { summary: "A position curates an asset." }

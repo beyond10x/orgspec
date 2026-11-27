@@ -1,0 +1,12 @@
+format: orgspec-type/1
+type: stewarded
+origin: invented
+summary: An organization in which each unit's steward answers for its agents. A default.
+kinds:
+  steward: { block: role, summary: "The human role that answers for agent-held positions." }
+defaults:
+  - id: steward_answers
+    summary: An agent-held position without an answers_to link answers to its unit's steward.
+    each: { block: position, held_by: agent }
+    carries: answers_to
+    to: { block: position, role_kind: steward, same: unit }

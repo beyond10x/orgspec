@@ -1,0 +1,4 @@
+format: orgspec-type/1
+type: twin
+origin: invented
+summary: Another file of this directory declares the same type.

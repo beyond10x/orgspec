@@ -1,0 +1,80 @@
+format: orgspec-type/1
+type: cooperative
+origin: invented
+extends: [base]
+summary: An organization owned and governed by its members, each with one vote.
+
+vocabulary:
+  organization: cooperative
+
+kinds:
+  assembly:
+    block: unit
+    nature: governing
+    summary: All members together. The highest body.
+  board:
+    block: unit
+    nature: governing
+    summary: The members the assembly elected to govern between its meetings.
+  constitutional:
+    block: decision_class
+    summary: A class of decisions about the statutes, the board or the end of the cooperative.
+
+rules:
+  - id: one_assembly
+    summary: The design has one assembly.
+    rule: parts
+    match: { block: unit, kind: assembly }
+    min: 1
+    max: 1
+
+  - id: one_board
+    summary: The design has one board.
+    rule: parts
+    match: { block: unit, kind: board }
+    min: 1
+    max: 1
+
+  - id: assembly_meets
+    summary: A forum convenes the assembly.
+    rule: parts
+    match: { block: forum }
+    per: { block: unit, kind: assembly }
+    min: 1
+
+  - id: constitutional_class_exists
+    summary: The design names at least one constitutional decision class.
+    rule: parts
+    match: { block: decision_class, kind: constitutional }
+    min: 1
+
+  - id: assembly_decides_constitutional
+    summary: Every constitutional decision class is decided by the assembly.
+    rule: links
+    each: { block: decision_class, kind: constitutional }
+    carries: decides
+    direction: in
+    other: { block: unit, kind: assembly }
+    min: 1
+
+  - id: position_decides_nothing_constitutional
+    summary: No position decides a constitutional decision class.
+    rule: forbid
+    carries: decides
+    from: { block: position }
+    to: { block: decision_class, kind: constitutional }
+
+  - id: constitutional_not_delegated
+    summary: No part receives a delegation from the assembly.
+    rule: forbid
+    carries: delegates
+    from: { block: unit, kind: assembly }
+    to: {}
+
+kpis:
+  - id: assembly_turnout_share
+    block: forum
+    measures: quality
+    unit: share
+    summary: Share of members who took part in a meeting of the assembly.
+    direction: higher

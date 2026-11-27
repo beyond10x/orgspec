@@ -1,0 +1,602 @@
+domain: org.competence
+
+summary: >-
+  What can be done, by whom and for which role. A skill is a named ability the organization
+  lists. A proficiency is the level one party has a skill at, with how that is known. A
+  requirement is the level a role asks for. The block holds the three as rows; whether a holder
+  meets the requirements of a position's role is a reading over them and the assignment block.
+
+naming:
+  wire: competence
+  display: Competence
+
+entities:
+  - name: org.competence.Skill
+    naming:
+      summary: >-
+        A named ability the organization lists: baking sourdough, triage, colour grading. Listed
+        until retired; a retired skill stays on record and takes no new proficiency or
+        requirement.
+    identity:
+      name: skill_id
+      type: org.shared.SkillId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: listed_at
+        type: Timestamp
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+    lifecycle:
+      initial: Listed
+      states:
+        - {name: Listed, summary: "Can be named by a proficiency or a requirement."}
+        - {name: Retired, summary: "Stays on record and takes no new row."}
+      terminal: [Retired]
+      transitions:
+        - {name: retire, from: [Listed], to: Retired}
+
+  # UNMAPPED: nothing in the design says whether two recorded proficiencies of one party in one
+  # skill may stand side by side (two assessments), or two requirements of one role for one
+  # skill. No uniqueness guard is declared; open question for the owner.
+  # UNMAPPED: nothing in the design says what happens to the proficiencies and requirements of a
+  # skill when it retires. RetireSkill leaves them as they are; open question for the owner.
+  - name: org.competence.Proficiency
+    naming:
+      summary: >-
+        The level one party has one skill at, and whether that was read from a record, stated,
+        concluded or is unknown. It names the party, not a membership: a skill belongs to the
+        party and goes with it to another organization. Recorded until withdrawn.
+    identity:
+      name: proficiency_id
+      type: org.shared.ProficiencyId
+    fields:
+      - name: party_id
+        type: org.shared.PartyId
+      - name: skill_id
+        type: org.shared.SkillId
+      - name: level
+        type: org.shared.Level
+      - name: attribution
+        type: org.shared.Attribution
+      - name: recorded_at
+        type: Timestamp
+      - name: assessed_at
+        type: Timestamp
+        summary: When the level last changed or was confirmed.
+      - name: withdrawn_at
+        type: Optional<Timestamp>
+    relations:
+      - name: skill
+        kind: references
+        target: org.competence.Skill
+        cardinality: one
+        via: skill_id
+      - name: party
+        kind: references
+        target: org.party.Party
+        cardinality: one
+        via: party_id
+    lifecycle:
+      initial: Recorded
+      states:
+        - {name: Recorded, summary: "The level stands."}
+        - {name: Withdrawn, summary: "The level no longer stands. The row stays on record."}
+      terminal: [Withdrawn]
+      transitions:
+        - {name: reassess, from: [Recorded], to: Recorded}
+        - {name: withdraw, from: [Recorded], to: Withdrawn}
+
+  - name: org.competence.Requirement
+    naming:
+      summary: >-
+        The level of one skill that one role asks of its holder. It names the role, not a
+        position, so every position that plays the role asks the same. Set until dropped.
+    identity:
+      name: requirement_id
+      type: org.shared.RequirementId
+    fields:
+      - name: role_id
+        type: org.shared.RoleId
+      - name: skill_id
+        type: org.shared.SkillId
+      - name: level
+        type: org.shared.Level
+      - name: set_at
+        type: Timestamp
+      - name: dropped_at
+        type: Optional<Timestamp>
+    relations:
+      - name: skill
+        kind: references
+        target: org.competence.Skill
+        cardinality: one
+        via: skill_id
+      - name: role
+        kind: references
+        target: org.role.Role
+        cardinality: one
+        via: role_id
+    lifecycle:
+      initial: Set
+      states:
+        - {name: Set, summary: "The role asks for the level."}
+        - {name: Dropped, summary: "The role no longer asks for it. The row stays on record."}
+      terminal: [Dropped]
+      transitions:
+        - {name: change, from: [Set], to: Set}
+        - {name: drop, from: [Set], to: Dropped}
+
+errors:
+  - name: org.competence.SkillNotFound
+    summary: No skill of this identity is listed, and nothing changed.
+    fields:
+      - {name: skill_id, type: org.shared.SkillId}
+
+  - name: org.competence.SkillNotListed
+    summary: The skill is retired, so it takes no change and no new row. Nothing changed.
+    fields:
+      - {name: skill_id, type: org.shared.SkillId}
+
+  - name: org.competence.ProficiencyNotFound
+    summary: No proficiency of this identity is on record, and nothing changed.
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+
+  - name: org.competence.ProficiencyNotRecorded
+    summary: The proficiency was withdrawn, so it takes no change. Nothing changed.
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+
+  - name: org.competence.RequirementNotFound
+    summary: No requirement of this identity is on record, and nothing changed.
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+
+  - name: org.competence.RequirementNotSet
+    summary: The requirement was dropped, so it takes no change. Nothing changed.
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+
+  - name: org.competence.OrganizationNotFound
+    summary: No organization of this identity is on record, and no skill was listed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.competence.PartyNotFound
+    summary: No party of this identity is registered, and no proficiency was recorded.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+  - name: org.competence.RoleNotFound
+    summary: No role of this identity is on record, and no requirement was set.
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+
+events:
+  - name: org.competence.SkillListed
+    fields:
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.SkillRetired
+    fields:
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.ProficiencyRecorded
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.ProficiencyReassessed
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: previous_level, type: org.shared.Level}
+      - {name: level, type: org.shared.Level}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.ProficiencyWithdrawn
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.RequirementSet
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.RequirementChanged
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: previous_level, type: org.shared.Level}
+      - {name: level, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+
+  - name: org.competence.RequirementDropped
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.competence.ListSkill
+    naming:
+      wire: list-skill
+      display: List a skill
+    input:
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.competence.OrganizationNotFound
+        payload:
+          org.competence.OrganizationNotFound: {organization_id: input.organization_id}
+        summary: A skill is listed for an organization on record.
+      - name: listed
+        creates: org.competence.Skill
+        instance: skill_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          listed_at: input.at
+        emits: [org.competence.SkillListed]
+        payload:
+          org.competence.SkillListed:
+            skill_id: input.skill_id
+            organization_id: input.organization_id
+            name: input.name
+            at: input.at
+        summary: The skill is Listed and can be named.
+
+  - name: org.competence.RetireSkill
+    naming:
+      wire: retire-skill
+      display: Retire a skill
+    input:
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-skill
+        unknown_instance: true
+        error: org.competence.SkillNotFound
+        payload:
+          org.competence.SkillNotFound: {skill_id: input.skill_id}
+      - name: retired
+        moves: org.competence.Skill.retire
+        instance: skill_id
+        sets:
+          retired_at: input.at
+        emits: [org.competence.SkillRetired]
+        payload:
+          org.competence.SkillRetired:
+            skill_id: input.skill_id
+            at: input.at
+        summary: The skill takes no new proficiency or requirement.
+      - name: already-retired
+        wrong_state: true
+        error: org.competence.SkillNotListed
+        payload:
+          org.competence.SkillNotListed: {skill_id: input.skill_id}
+        summary: The skill had already retired.
+
+  - name: org.competence.RecordProficiency
+    naming:
+      wire: record-proficiency
+      display: Record a proficiency
+      summary: >-
+        Records the level one party has a listed skill at. The attribution says how the level is
+        known, so an inferred level is never read as an assessed one.
+    input:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-skill
+        when_related: {via: input.skill_id, exists: false}
+        error: org.competence.SkillNotFound
+        payload:
+          org.competence.SkillNotFound: {skill_id: input.skill_id}
+        summary: A proficiency names a listed skill, never a free text.
+      - name: no-such-party
+        when_related: {via: input.party_id, exists: false}
+        error: org.competence.PartyNotFound
+        payload:
+          org.competence.PartyNotFound: {party_id: input.party_id}
+        summary: A proficiency is recorded for a registered party.
+      - name: skill-retired
+        when_related: {via: input.skill_id, predicate: state == Retired}
+        error: org.competence.SkillNotListed
+        payload:
+          org.competence.SkillNotListed: {skill_id: input.skill_id}
+      - name: recorded
+        creates: org.competence.Proficiency
+        instance: proficiency_id
+        sets:
+          party_id: input.party_id
+          skill_id: input.skill_id
+          level: input.level
+          attribution: input.attribution
+          recorded_at: input.at
+          assessed_at: input.at
+        emits: [org.competence.ProficiencyRecorded]
+        payload:
+          org.competence.ProficiencyRecorded:
+            proficiency_id: input.proficiency_id
+            party_id: input.party_id
+            skill_id: input.skill_id
+            level: input.level
+            attribution: input.attribution
+            at: input.at
+        summary: The proficiency is Recorded.
+
+  - name: org.competence.ReassessProficiency
+    naming:
+      wire: reassess-proficiency
+      display: Reassess a proficiency
+      summary: >-
+        Gives the proficiency another level or another attribution. The event carries both
+        levels.
+    input:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: level, type: org.shared.Level}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-proficiency
+        unknown_instance: true
+        error: org.competence.ProficiencyNotFound
+        payload:
+          org.competence.ProficiencyNotFound: {proficiency_id: input.proficiency_id}
+      - name: reassessed
+        moves: org.competence.Proficiency.reassess
+        instance: proficiency_id
+        sets:
+          level: input.level
+          attribution: input.attribution
+          assessed_at: input.at
+        emits: [org.competence.ProficiencyReassessed]
+        payload:
+          org.competence.ProficiencyReassessed:
+            proficiency_id: input.proficiency_id
+            party_id: {subject: party_id}
+            skill_id: {subject: skill_id}
+            previous_level: {subject: level}
+            level: input.level
+            attribution: input.attribution
+            at: input.at
+        summary: The proficiency carries the new level.
+      - name: withdrawn
+        wrong_state: true
+        error: org.competence.ProficiencyNotRecorded
+        payload:
+          org.competence.ProficiencyNotRecorded: {proficiency_id: input.proficiency_id}
+        summary: A withdrawn proficiency keeps the level it had.
+
+  - name: org.competence.WithdrawProficiency
+    naming:
+      wire: withdraw-proficiency
+      display: Withdraw a proficiency
+    input:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-proficiency
+        unknown_instance: true
+        error: org.competence.ProficiencyNotFound
+        payload:
+          org.competence.ProficiencyNotFound: {proficiency_id: input.proficiency_id}
+      - name: withdrawn
+        moves: org.competence.Proficiency.withdraw
+        instance: proficiency_id
+        sets:
+          withdrawn_at: input.at
+        emits: [org.competence.ProficiencyWithdrawn]
+        payload:
+          org.competence.ProficiencyWithdrawn:
+            proficiency_id: input.proficiency_id
+            party_id: {subject: party_id}
+            skill_id: {subject: skill_id}
+            at: input.at
+        summary: The level no longer stands.
+      - name: already-withdrawn
+        wrong_state: true
+        error: org.competence.ProficiencyNotRecorded
+        payload:
+          org.competence.ProficiencyNotRecorded: {proficiency_id: input.proficiency_id}
+        summary: The proficiency had already been withdrawn.
+
+  - name: org.competence.SetRequirement
+    naming:
+      wire: set-requirement
+      display: Set a requirement
+      summary: Says which level of a listed skill a role asks of its holder.
+    input:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-skill
+        when_related: {via: input.skill_id, exists: false}
+        error: org.competence.SkillNotFound
+        payload:
+          org.competence.SkillNotFound: {skill_id: input.skill_id}
+        summary: A requirement names a listed skill, never a free text.
+      - name: no-such-role
+        when_related: {via: input.role_id, exists: false}
+        error: org.competence.RoleNotFound
+        payload:
+          org.competence.RoleNotFound: {role_id: input.role_id}
+        summary: A requirement is set for a role on record.
+      - name: skill-retired
+        when_related: {via: input.skill_id, predicate: state == Retired}
+        error: org.competence.SkillNotListed
+        payload:
+          org.competence.SkillNotListed: {skill_id: input.skill_id}
+      - name: set
+        creates: org.competence.Requirement
+        instance: requirement_id
+        sets:
+          role_id: input.role_id
+          skill_id: input.skill_id
+          level: input.level
+          set_at: input.at
+        emits: [org.competence.RequirementSet]
+        payload:
+          org.competence.RequirementSet:
+            requirement_id: input.requirement_id
+            role_id: input.role_id
+            skill_id: input.skill_id
+            level: input.level
+            at: input.at
+        summary: The role asks for the skill at this level.
+
+  - name: org.competence.ChangeRequirement
+    naming:
+      wire: change-requirement
+      display: Change the level of a requirement
+    input:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: level, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-requirement
+        unknown_instance: true
+        error: org.competence.RequirementNotFound
+        payload:
+          org.competence.RequirementNotFound: {requirement_id: input.requirement_id}
+      - name: changed
+        moves: org.competence.Requirement.change
+        instance: requirement_id
+        sets:
+          level: input.level
+        emits: [org.competence.RequirementChanged]
+        payload:
+          org.competence.RequirementChanged:
+            requirement_id: input.requirement_id
+            role_id: {subject: role_id}
+            skill_id: {subject: skill_id}
+            previous_level: {subject: level}
+            level: input.level
+            at: input.at
+        summary: The role asks for the new level; the event carries the old one too.
+      - name: dropped
+        wrong_state: true
+        error: org.competence.RequirementNotSet
+        payload:
+          org.competence.RequirementNotSet: {requirement_id: input.requirement_id}
+        summary: A dropped requirement keeps the level it had.
+
+  - name: org.competence.DropRequirement
+    naming:
+      wire: drop-requirement
+      display: Drop a requirement
+    input:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-requirement
+        unknown_instance: true
+        error: org.competence.RequirementNotFound
+        payload:
+          org.competence.RequirementNotFound: {requirement_id: input.requirement_id}
+      - name: dropped
+        moves: org.competence.Requirement.drop
+        instance: requirement_id
+        sets:
+          dropped_at: input.at
+        emits: [org.competence.RequirementDropped]
+        payload:
+          org.competence.RequirementDropped:
+            requirement_id: input.requirement_id
+            role_id: {subject: role_id}
+            skill_id: {subject: skill_id}
+            at: input.at
+        summary: The role no longer asks for the skill.
+      - name: already-dropped
+        wrong_state: true
+        error: org.competence.RequirementNotSet
+        payload:
+          org.competence.RequirementNotSet: {requirement_id: input.requirement_id}
+        summary: The requirement had already been dropped.
+
+views:
+  - name: org.competence.Skills
+    source: org.competence.Skill
+    consistency: read_your_writes
+    fields:
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: listed_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.competence.Skill.State}
+    naming:
+      wire: skills
+      display: Skills
+
+  # Who has which skill at which level. Read by skill, it shows a skill only one party has.
+  - name: org.competence.Proficiencies
+    source: org.competence.Proficiency
+    consistency: read_your_writes
+    fields:
+      - {name: proficiency_id, type: org.shared.ProficiencyId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: recorded_at, type: Timestamp}
+      - {name: assessed_at, type: Timestamp}
+      - {name: withdrawn_at, type: Optional<Timestamp>}
+      - {name: state, type: org.competence.Proficiency.State}
+    naming:
+      wire: proficiencies
+      display: Proficiencies
+
+  - name: org.competence.Requirements
+    source: org.competence.Requirement
+    consistency: read_your_writes
+    fields:
+      - {name: requirement_id, type: org.shared.RequirementId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: skill_id, type: org.shared.SkillId}
+      - {name: level, type: org.shared.Level}
+      - {name: set_at, type: Timestamp}
+      - {name: dropped_at, type: Optional<Timestamp>}
+      - {name: state, type: org.competence.Requirement.State}
+    naming:
+      wire: requirements
+      display: Requirements

@@ -1,0 +1,64 @@
+format: orgspec-type/1
+type: full
+origin: invented
+extends: [lower, base]
+summary: A type that uses every key of the format.
+vocabulary:
+  unit: room
+  position: seat
+  hands_off: passes on
+kinds:
+  reading_room: { block: unit, is: room, basis: offering, attributes: { quiet: { type: boolean } } }
+  rare_book: { block: asset, class: physical, criticality: critical }
+links:
+  catalogues: { summary: "A position catalogues an asset." }
+rules:
+  - id: rooms_are_few
+    summary: Restated without a change, so it is still not a gate.
+    gate: false
+  - id: rare_book_catalogued
+    summary: Every rare book is catalogued by one or two positions.
+    rule: links
+    each: { kind: rare_book }
+    carries: catalogues
+    direction: in
+    other: { block: position }
+    min: 1
+    max: 2
+  - id: room_seats
+    summary: A reading room states at most 80 seats when it states any.
+    rule: value
+    each: { kind: room }
+    field: seats
+    max: 80
+  - id: room_seats_at_least
+    summary: A room has at least 10 seats; holds together with the bound above.
+    rule: value
+    each: { where: { kind: [room] } }
+    field: seats
+    min: 10
+defaults:
+  - id: room_lead_answers
+    summary: An agent-held position answers to the lead of a unit under the same parent.
+    each: { block: position, held_by: agent }
+    carries: answers_to
+    to: { block: position, role_kind: room_lead, same: parent }
+kpis:
+  - id: loans_per_week
+    summary: Loans per week of an offering.
+    block: offering
+    measures: quality
+    unit: loans
+    direction: higher
+    target: 400
+  - id: catalogued_share
+    summary: Share of rare books with a catalogue entry.
+    block: asset
+    of_kind: rare_book
+    measures: completeness
+    unit: share
+    direction: higher
+extensions:
+  - domain: library.loan
+    extends: work
+    path: ess/8-work/loan.yaml

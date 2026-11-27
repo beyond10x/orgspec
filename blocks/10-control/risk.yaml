@@ -1,0 +1,343 @@
+domain: org.risk
+
+summary: >-
+  What could go wrong with a subject, how likely it is, how bad it would be, and what the
+  organization does about it. A risk is identified, assessed, treated and closed, or it is
+  realized: the thing happened. The subject is an offering, an asset, a goal, a process or a
+  unit. Who answers for a risk is a row of the responsibility block, not a field here.
+
+naming:
+  wire: risk
+  display: Risk
+
+types:
+  - name: org.risk.Subject
+    kind: union
+    tag: kind
+    variants:
+      Offering: org.shared.OfferingId
+      Asset: org.shared.AssetId
+      Goal: org.shared.GoalId
+      Process: org.shared.ProcessId
+      Unit: org.shared.UnitId
+    naming:
+      summary: The thing the risk is about; exactly one of the listed blocks, named by its identifier.
+
+  - name: org.risk.Treatment
+    kind: enum
+    variants: [Accept, Reduce, Transfer, Avoid]
+    naming:
+      summary: >-
+        What the organization does about a risk. Accept: live with it. Reduce: lower the
+        likelihood or the impact. Transfer: let another party carry it. Avoid: stop doing what
+        causes it.
+
+entities:
+  - name: org.risk.Risk
+    naming:
+      summary: >-
+        One thing that could go wrong with one subject. Open while Identified, Assessed or
+        Treated; it ends Closed, or Realized when it happened.
+    identity:
+      name: risk_id
+      type: org.shared.RiskId
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: statement, type: String}
+      # UNMAPPED: whether likelihood, impact and treatment are known when a risk is first on
+      # record is not stated; the lifecycle starts at Identified, before any assessment. Taken:
+      # each is absent until the command that moves the risk to Assessed (likelihood, impact) or
+      # Treated (treatment) sets it.
+      - {name: likelihood, type: Optional<org.shared.Level>}
+      - {name: impact, type: Optional<org.shared.Level>}
+      - {name: treatment, type: Optional<org.risk.Treatment>}
+      - {name: identified_at, type: Timestamp}
+      - name: ended_at
+        type: Optional<Timestamp>
+        summary: When the risk was closed or realized.
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    # UNMAPPED: whether an assessed or treated risk can be assessed again, whether a treatment
+    # can be changed, whether a risk can be closed before it is treated, and whether a realized
+    # risk can be closed, is not stated. Taken: none of these; Closed and Realized are final.
+    # Open question for the owner.
+    lifecycle:
+      initial: Identified
+      states:
+        - {name: Identified, summary: "Stated, not yet assessed."}
+        - {name: Assessed, summary: "Has a likelihood and an impact."}
+        - {name: Treated, summary: "Has a treatment."}
+        - {name: Closed, summary: "No longer a risk."}
+        - {name: Realized, summary: "It happened."}
+      terminal: [Closed, Realized]
+      transitions:
+        - {name: assess, from: [Identified], to: Assessed}
+        - {name: treat, from: [Assessed], to: Treated}
+        - {name: close, from: [Treated], to: Closed}
+        - {name: realize, from: [Identified, Assessed, Treated], to: Realized}
+
+errors:
+  - name: org.risk.RiskNotFound
+    summary: No risk has this identity, and nothing changed.
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+
+  - name: org.risk.OrganizationNotFound
+    summary: The risk names an organization that is not on record, and nothing was identified.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.risk.RiskStateConflict
+    summary: The risk is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.risk.Risk.State}
+
+events:
+  - name: org.risk.RiskIdentified
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.risk.RiskAssessed
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: likelihood, type: org.shared.Level}
+      - {name: impact, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+
+  - name: org.risk.RiskTreated
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: treatment, type: org.risk.Treatment}
+      - {name: at, type: Timestamp}
+
+  - name: org.risk.RiskClosed
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: at, type: Timestamp}
+
+  # `was` is the state the risk held when it happened: Identified or Assessed means it happened
+  # before the organization had decided what to do about it.
+  - name: org.risk.RiskRealized
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: was, type: org.risk.Risk.State}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: IdentifyRisk refuses an organization that is not on record. Whether the subject
+  # exists is not checked: it is named through a union, which is no entity's identity
+  # (ESS-COMMAND-002), so no `when_related: {via: …}` follows it. Open question for the owner.
+  - name: org.risk.IdentifyRisk
+    naming:
+      wire: identify-risk
+      display: Identify a risk
+    input:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.risk.OrganizationNotFound
+        payload:
+          org.risk.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: identified
+        creates: org.risk.Risk
+        instance: risk_id
+        sets:
+          organization_id: input.organization_id
+          subject: input.subject
+          statement: input.statement
+          identified_at: input.at
+        emits: [org.risk.RiskIdentified]
+        payload:
+          org.risk.RiskIdentified:
+            risk_id: input.risk_id
+            organization_id: input.organization_id
+            subject: input.subject
+            statement: input.statement
+            at: input.at
+        summary: The risk is on record, not yet assessed.
+
+  - name: org.risk.AssessRisk
+    naming:
+      wire: assess-risk
+      display: Assess a risk
+    input:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: likelihood, type: org.shared.Level}
+      - {name: impact, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-risk
+        unknown_instance: true
+        error: org.risk.RiskNotFound
+        payload:
+          org.risk.RiskNotFound: {risk_id: input.risk_id}
+      - name: assessed
+        moves: org.risk.Risk.assess
+        instance: risk_id
+        sets:
+          likelihood: input.likelihood
+          impact: input.impact
+        emits: [org.risk.RiskAssessed]
+        payload:
+          org.risk.RiskAssessed:
+            risk_id: input.risk_id
+            likelihood: input.likelihood
+            impact: input.impact
+            at: input.at
+        summary: The risk has a likelihood and an impact.
+      - name: wrong-state
+        wrong_state: true
+        error: org.risk.RiskStateConflict
+        payload:
+          org.risk.RiskStateConflict: {state: {subject: state}}
+
+  - name: org.risk.TreatRisk
+    naming:
+      wire: treat-risk
+      display: Decide the treatment of a risk
+    input:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: treatment, type: org.risk.Treatment}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-risk
+        unknown_instance: true
+        error: org.risk.RiskNotFound
+        payload:
+          org.risk.RiskNotFound: {risk_id: input.risk_id}
+      - name: treated
+        moves: org.risk.Risk.treat
+        instance: risk_id
+        sets:
+          treatment: input.treatment
+        emits: [org.risk.RiskTreated]
+        payload:
+          org.risk.RiskTreated:
+            risk_id: input.risk_id
+            treatment: input.treatment
+            at: input.at
+        summary: The risk has a treatment.
+      - name: wrong-state
+        wrong_state: true
+        error: org.risk.RiskStateConflict
+        payload:
+          org.risk.RiskStateConflict: {state: {subject: state}}
+        summary: Only an assessed risk is treated; an unassessed one is refused.
+
+  - name: org.risk.CloseRisk
+    naming:
+      wire: close-risk
+      display: Close a risk
+    input:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-risk
+        unknown_instance: true
+        error: org.risk.RiskNotFound
+        payload:
+          org.risk.RiskNotFound: {risk_id: input.risk_id}
+      - name: closed
+        moves: org.risk.Risk.close
+        instance: risk_id
+        sets:
+          ended_at: input.at
+        emits: [org.risk.RiskClosed]
+        payload:
+          org.risk.RiskClosed:
+            risk_id: input.risk_id
+            at: input.at
+        summary: The risk is no longer one.
+      - name: wrong-state
+        wrong_state: true
+        error: org.risk.RiskStateConflict
+        payload:
+          org.risk.RiskStateConflict: {state: {subject: state}}
+
+  - name: org.risk.RealizeRisk
+    naming:
+      wire: realize-risk
+      display: Record that a risk happened
+    input:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-risk
+        unknown_instance: true
+        error: org.risk.RiskNotFound
+        payload:
+          org.risk.RiskNotFound: {risk_id: input.risk_id}
+      - name: realized
+        moves: org.risk.Risk.realize
+        instance: risk_id
+        sets:
+          ended_at: input.at
+        emits: [org.risk.RiskRealized]
+        payload:
+          org.risk.RiskRealized:
+            risk_id: input.risk_id
+            subject: {subject: subject}
+            was: {subject: state}
+            at: input.at
+        summary: The risk happened, from whichever open state it was in.
+      - name: wrong-state
+        wrong_state: true
+        error: org.risk.RiskStateConflict
+        payload:
+          org.risk.RiskStateConflict: {state: {subject: state}}
+
+views:
+  # UNMAPPED: a read by subject (`filter: subject == param.subject`) is ESS-VIEW-002
+  # (`type_mismatch`: `==` does not admit a union). Taken: the views publish `subject`; the
+  # reader selects.
+  - name: org.risk.Risks
+    source: org.risk.Risk
+    consistency: read_your_writes
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: statement, type: String}
+      - {name: likelihood, type: Optional<org.shared.Level>}
+      - {name: impact, type: Optional<org.shared.Level>}
+      - {name: treatment, type: Optional<org.risk.Treatment>}
+      - {name: identified_at, type: Timestamp}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.risk.Risk.State}
+    naming:
+      wire: risks
+      display: Risks
+
+  # The risk register of one organization: what is open now.
+  - name: org.risk.OpenRisks
+    source: org.risk.Risk
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter:
+      all:
+        - organization_id == param.organization_id
+        - any: [state == Identified, state == Assessed, state == Treated]
+    fields:
+      - {name: risk_id, type: org.shared.RiskId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: subject, type: org.risk.Subject}
+      - {name: statement, type: String}
+      - {name: likelihood, type: Optional<org.shared.Level>}
+      - {name: impact, type: Optional<org.shared.Level>}
+      - {name: treatment, type: Optional<org.risk.Treatment>}
+      - {name: state, type: org.risk.Risk.State}
+    naming:
+      wire: open-risks
+      display: Open risks of an organization

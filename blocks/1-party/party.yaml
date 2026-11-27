@@ -1,0 +1,195 @@
+domain: org.party
+
+summary: >-
+  Who can act and answer for it: a human, an agent, an organization or a service. A party exists
+  outside any organization; the same party can be a member of two. It has a kind and a name and
+  names nothing else, so every other block may name it.
+
+naming:
+  wire: party
+  display: Party
+
+entities:
+  - name: org.party.Party
+    naming:
+      summary: >-
+        One party that can act and answer for it. Active until retired; a retired party stays on
+        record, because memberships and relationships name it, and takes no new one.
+    identity:
+      name: party_id
+      type: org.shared.PartyId
+    fields:
+      - name: kind
+        type: org.shared.PartyKind
+      - name: name
+        type: org.shared.Name
+      - name: registered_at
+        type: Timestamp
+      - name: retired_at
+        type: Optional<Timestamp>
+    lifecycle:
+      initial: Active
+      states:
+        - {name: Active, summary: "Can be named by a new membership or relationship."}
+        - {name: Retired, summary: "Stays on record and takes no new tie."}
+      terminal: [Retired]
+      transitions:
+        - {name: retire, from: [Active], to: Retired}
+
+errors:
+  - name: org.party.PartyNotFound
+    summary: No party of this identity is registered, and nothing changed.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+  - name: org.party.PartyNotActive
+    summary: The party is retired, so it takes no change, and nothing changed.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+events:
+  - name: org.party.PartyRegistered
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: kind, type: org.shared.PartyKind}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+
+  - name: org.party.PartyRenamed
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: previous_name, type: org.shared.Name}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+
+  - name: org.party.PartyRetired
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.party.RegisterParty
+    naming:
+      wire: register-party
+      display: Register a party
+    input:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: kind, type: org.shared.PartyKind}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: registered
+        creates: org.party.Party
+        instance: party_id
+        sets:
+          kind: input.kind
+          name: input.name
+          registered_at: input.at
+        emits: [org.party.PartyRegistered]
+        payload:
+          org.party.PartyRegistered:
+            party_id: input.party_id
+            kind: input.kind
+            name: input.name
+            at: input.at
+        summary: The party exists and is Active.
+
+  # The kind of a party never changes: a human does not become a service. Only the name does.
+  - name: org.party.RenameParty
+    naming:
+      wire: rename-party
+      display: Rename a party
+    input:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-party
+        unknown_instance: true
+        error: org.party.PartyNotFound
+        payload:
+          org.party.PartyNotFound: {party_id: input.party_id}
+      - name: renamed
+        when_subject_state: Active
+        updates: org.party.Party
+        instance: party_id
+        sets:
+          name: input.name
+        emits: [org.party.PartyRenamed]
+        payload:
+          org.party.PartyRenamed:
+            party_id: input.party_id
+            previous_name: {subject: name}
+            name: input.name
+            at: input.at
+        summary: The party carries the new name; the event carries the old one too.
+      - name: retired
+        error: org.party.PartyNotActive
+        payload:
+          org.party.PartyNotActive: {party_id: input.party_id}
+        summary: A retired party keeps the name it had.
+
+  - name: org.party.RetireParty
+    naming:
+      wire: retire-party
+      display: Retire a party
+    input:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-party
+        unknown_instance: true
+        error: org.party.PartyNotFound
+        payload:
+          org.party.PartyNotFound: {party_id: input.party_id}
+      - name: retired
+        moves: org.party.Party.retire
+        instance: party_id
+        sets:
+          retired_at: input.at
+        emits: [org.party.PartyRetired]
+        payload:
+          org.party.PartyRetired:
+            party_id: input.party_id
+            at: input.at
+        summary: The party takes no new membership or relationship.
+      - name: already-retired
+        wrong_state: true
+        error: org.party.PartyNotActive
+        payload:
+          org.party.PartyNotActive: {party_id: input.party_id}
+        summary: The party had already retired.
+
+views:
+  - name: org.party.Parties
+    source: org.party.Party
+    consistency: read_your_writes
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: kind, type: org.shared.PartyKind}
+      - {name: name, type: org.shared.Name}
+      - {name: registered_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.party.Party.State}
+    naming:
+      wire: parties
+      display: Parties
+
+  # The parties of one kind that can take a new tie: every agent, every service.
+  - name: org.party.ActivePartiesOfKind
+    source: org.party.Party
+    consistency: read_your_writes
+    params:
+      - {name: kind, type: org.shared.PartyKind}
+    filter:
+      all:
+        - kind == param.kind
+        - state == Active
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: kind, type: org.shared.PartyKind}
+      - {name: name, type: org.shared.Name}
+      - {name: state, type: org.party.Party.State}
+    naming:
+      wire: active-parties-of-kind
+      display: Active parties of a kind

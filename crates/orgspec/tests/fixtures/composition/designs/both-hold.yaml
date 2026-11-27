@@ -1,0 +1,22 @@
+format: orgspec-organization/1
+organization: clinic
+type: [clinic, agent-run]
+origin: invented
+summary: A small clinic with one ward and an agent that books appointments.
+parts:
+  clinic:     { block: organization, form: association }
+  board:      { block: unit, nature: governing, in: clinic }
+  east:       { block: unit, kind: ward, beds: 12, in: clinic }
+  head_nurse: { block: role, kind: lead }
+  nurse:      { block: role }
+  sister:     { block: position, in: east, role: head_nurse }
+  nurses:     { block: position, in: east, role: nurse, seats: 6 }
+  booking:    { block: position, in: east, role: nurse, held_by: agent }
+  rota:       { block: decision_class }
+links:
+  - { from: sister, to: board, carries: reports_to }
+  - { from: nurses, to: sister, carries: reports_to }
+  - { from: booking, to: sister, carries: reports_to }
+  - { from: booking, to: sister, carries: answers_to }
+  - { from: booking, to: sister, carries: escalates, after: 4h }
+  - { from: sister, to: rota, carries: decides }

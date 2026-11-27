@@ -1,0 +1,499 @@
+domain: org.responsibility
+
+summary: >-
+  Who answers for what. It is the only place that names who answers for a thing; no other block
+  has an owner field. One position is accountable for a subject, and any number of positions are
+  responsible for it, consulted on it or informed about it. The subject is an offering, an asset,
+  a goal, a process, a policy, a budget, an agreement, a relationship, a risk, an obligation or a
+  unit. A subject has at most one accountable position at a time.
+
+naming:
+  wire: responsibility
+  display: Responsibility
+
+types:
+  - name: org.responsibility.Subject
+    kind: union
+    tag: kind
+    variants:
+      Offering: org.shared.OfferingId
+      Asset: org.shared.AssetId
+      Goal: org.shared.GoalId
+      Process: org.shared.ProcessId
+      Policy: org.shared.PolicyId
+      Budget: org.shared.BudgetId
+      Agreement: org.shared.AgreementId
+      Relationship: org.shared.RelationshipId
+      Risk: org.shared.RiskId
+      Obligation: org.shared.ObligationId
+      Unit: org.shared.UnitId
+    naming:
+      summary: >-
+        The thing a position answers for: exactly one of the listed blocks, named by its
+        identifier.
+
+  # UNMAPPED: a position stands to a subject in one of four ways: Accountable, Responsible,
+  # Consulted, Informed. Accountable is not a duty of a row here: it is the Accountability entity
+  # below, for the reason written there. Open question for the owner.
+  - name: org.responsibility.Duty
+    kind: enum
+    variants: [Responsible, Consulted, Informed]
+    naming:
+      summary: >-
+        How a position stands to a subject it is not accountable for. Responsible does the work.
+        Consulted is asked before. Informed is told after.
+
+entities:
+  # UNMAPPED: the rule "one Accountable per subject" as a guard over the other rows of one
+  # Responsibility entity. ESS 0.99.2 does not compare two union values: the row selector
+  # `when_related: {entity: Responsibility, where: {all: [subject == input.subject, duty ==
+  # Accountable, state == Assigned]}, exists: true}` is ESS-COMMAND-002 (`type_mismatch`: "operator
+  # `==` does not admit `org.responsibility.Subject` (aggregate)"), and a path into the union
+  # (`subject.value == input.subject.value`) is ESS-COMMAND-003 (`unobservable_fact`: "cannot
+  # select `value`"). Taken instead: the subject is the identity of this entity, so a subject has
+  # one row and that row names one position. A second accountable position is refused because the
+  # row exists and is Held. Open question for the owner: keep this, or keep one entity with four
+  # duties and leave the rule to `orgspec check` (`subject_with_two_accountables`).
+  - name: org.responsibility.Accountability
+    naming:
+      summary: >-
+        The one position that answers for a subject. Held while a position is accountable; Vacant
+        after it was released, which is the record that the subject has no accountable position.
+    identity:
+      name: subject
+      type: org.responsibility.Subject
+    fields:
+      # UNMAPPED: what a Vacant row says about the position. Taken: `position_id` stays and is the
+      # position that was accountable last; the views by position read Held rows only.
+      - name: position_id
+        type: org.shared.PositionId
+        summary: The accountable position while Held; the last accountable position while Vacant.
+      - {name: attribution, type: org.shared.Attribution}
+      - name: since
+        type: Timestamp
+        summary: When the position became accountable (Held) or was released (Vacant).
+    relations:
+      - {name: position, kind: references, target: org.position.Position, cardinality: one, via: position_id}
+    lifecycle:
+      initial: Held
+      states:
+        - {name: Held, summary: "One position is accountable for the subject."}
+        - {name: Vacant, summary: "No position is accountable for the subject."}
+      terminal: []
+      transitions:
+        - {name: vacate, from: [Held], to: Vacant, summary: "The accountable position is released and none takes its place."}
+        - {name: fill, from: [Vacant], to: Held, summary: "A position becomes accountable for a subject that had none."}
+
+  - name: org.responsibility.Responsibility
+    naming:
+      summary: >-
+        One position is responsible for, consulted on or informed about one subject, from the
+        time it is assigned until it is released. A released row stays on record.
+    identity:
+      name: responsibility_id
+      type: org.shared.ResponsibilityId
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: assigned_at, type: Timestamp}
+      - {name: released_at, type: Optional<Timestamp>}
+    relations:
+      # The accountability of the same subject: the row that says which position answers for what
+      # this position is responsible for, consulted on or informed about. It need not exist: a
+      # responsibility may be assigned for a subject nobody is accountable for yet.
+      - {name: accountability, kind: references, target: org.responsibility.Accountability, cardinality: one, via: subject}
+      - {name: position, kind: references, target: org.position.Position, cardinality: one, via: position_id}
+    lifecycle:
+      initial: Assigned
+      states:
+        - {name: Assigned, summary: "The position holds this standing to the subject."}
+        - {name: Released, summary: "The position no longer holds it; the row stays on record."}
+      terminal: [Released]
+      transitions:
+        - {name: release, from: [Assigned], to: Released}
+
+errors:
+  - name: org.responsibility.SubjectAlreadyAccountable
+    summary: >-
+      A position is already accountable for this subject, and nothing changed. Transfer the
+      accountability instead.
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.responsibility.SubjectWithoutAccountable
+    summary: No position is accountable for this subject, so there is nothing to transfer or release.
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+
+  - name: org.responsibility.PositionAlreadyAccountable
+    summary: The position named is the one already accountable for this subject, and nothing changed.
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.responsibility.PositionNotFound
+    summary: The command names a position that is not on record, and nothing was assigned.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.responsibility.ResponsibilityNotFound
+    summary: No responsibility has this identity, and nothing changed.
+    fields:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+
+  - name: org.responsibility.ResponsibilityStateConflict
+    summary: The responsibility is already released, and nothing changed.
+    fields:
+      - {name: state, type: org.responsibility.Responsibility.State}
+
+events:
+  - name: org.responsibility.AccountabilityAssigned
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.responsibility.AccountabilityTransferred
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: from_position_id, type: org.shared.PositionId}
+      - {name: to_position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  # The subject has no accountable position from `at` on.
+  - name: org.responsibility.AccountabilityReleased
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.responsibility.ResponsibilityAssigned
+    fields:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.responsibility.ResponsibilityReleased
+    fields:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: AssignAccountability refuses a position that is not on record only when a Vacant
+  # row is filled again (`no-such-position`). The first assignment of a subject is selected by
+  # `unknown_instance`, which answers before a related row is read (declared above
+  # `already-accountable`, the refusal is ESS-COMMAND-004), so it accepts a position nothing
+  # established: the synthesized scenario `AssignAccountability/outcome/assigned` does exactly
+  # that. TransferAccountability refuses a new position that is not on record. Whether the
+  # subject exists is not checked: it is named through a union, which is no entity's identity
+  # (ESS-COMMAND-002). Whether the position is still established is not read. `orgspec check`
+  # refuses a link to a part that does not exist (`unknown_link_parts`). Open question for the
+  # owner: whether the first assignment must refuse an unknown position.
+  - name: org.responsibility.AssignAccountability
+    naming:
+      wire: assign-accountability
+      display: Make a position accountable for a subject
+    input:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: assigned
+        unknown_instance: true
+        creates: org.responsibility.Accountability
+        instance: subject
+        sets:
+          position_id: input.position_id
+          attribution: input.attribution
+          since: input.at
+        emits: [org.responsibility.AccountabilityAssigned]
+        payload:
+          org.responsibility.AccountabilityAssigned:
+            subject: input.subject
+            position_id: input.position_id
+            attribution: input.attribution
+            at: input.at
+        summary: The subject had no accountability on record; the position is accountable for it.
+      - name: already-accountable
+        when_subject:
+          predicate: state == Held
+        error: org.responsibility.SubjectAlreadyAccountable
+        payload:
+          org.responsibility.SubjectAlreadyAccountable:
+            subject: input.subject
+            position_id: {subject: position_id}
+        summary: The subject keeps its accountable position; a second one is refused.
+      - name: no-such-position
+        when_related: {via: input.position_id, exists: false}
+        error: org.responsibility.PositionNotFound
+        payload:
+          org.responsibility.PositionNotFound: {position_id: input.position_id}
+      - name: reassigned
+        moves: org.responsibility.Accountability.fill
+        instance: subject
+        sets:
+          position_id: input.position_id
+          attribution: input.attribution
+          since: input.at
+        emits: [org.responsibility.AccountabilityAssigned]
+        payload:
+          org.responsibility.AccountabilityAssigned:
+            subject: input.subject
+            position_id: input.position_id
+            attribution: input.attribution
+            at: input.at
+        summary: The subject was Vacant; the position is accountable for it.
+
+  # One command, one row changed in place: the subject is never without an accountable position
+  # between the old one and the new one.
+  - name: org.responsibility.TransferAccountability
+    naming:
+      wire: transfer-accountability
+      display: Transfer the accountability for a subject to another position
+    input:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: to_position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-accountability
+        unknown_instance: true
+        error: org.responsibility.SubjectWithoutAccountable
+        payload:
+          org.responsibility.SubjectWithoutAccountable: {subject: input.subject}
+      - name: vacant
+        when_subject:
+          predicate: state == Vacant
+        error: org.responsibility.SubjectWithoutAccountable
+        payload:
+          org.responsibility.SubjectWithoutAccountable: {subject: input.subject}
+        summary: Nothing to transfer; assign the accountability instead.
+      - name: same-position
+        when_subject:
+          predicate: position_id == input.to_position_id
+        error: org.responsibility.PositionAlreadyAccountable
+        payload:
+          org.responsibility.PositionAlreadyAccountable:
+            subject: input.subject
+            position_id: input.to_position_id
+      - name: no-such-position
+        when_related: {via: input.to_position_id, exists: false}
+        error: org.responsibility.PositionNotFound
+        payload:
+          org.responsibility.PositionNotFound: {position_id: input.to_position_id}
+      - name: transferred
+        updates: org.responsibility.Accountability
+        instance: subject
+        sets:
+          position_id: input.to_position_id
+          attribution: input.attribution
+          since: input.at
+        emits: [org.responsibility.AccountabilityTransferred]
+        payload:
+          org.responsibility.AccountabilityTransferred:
+            subject: input.subject
+            from_position_id: {subject: position_id}
+            to_position_id: input.to_position_id
+            attribution: input.attribution
+            at: input.at
+        summary: The other position is accountable from this instant.
+
+  - name: org.responsibility.ReleaseAccountability
+    naming:
+      wire: release-accountability
+      display: Release the accountable position of a subject
+    input:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-accountability
+        unknown_instance: true
+        error: org.responsibility.SubjectWithoutAccountable
+        payload:
+          org.responsibility.SubjectWithoutAccountable: {subject: input.subject}
+      - name: released
+        moves: org.responsibility.Accountability.vacate
+        instance: subject
+        sets:
+          since: input.at
+        emits: [org.responsibility.AccountabilityReleased]
+        payload:
+          org.responsibility.AccountabilityReleased:
+            subject: input.subject
+            position_id: {subject: position_id}
+            at: input.at
+        summary: The subject has no accountable position, and its row says so.
+      - name: already-vacant
+        wrong_state: true
+        error: org.responsibility.SubjectWithoutAccountable
+        payload:
+          org.responsibility.SubjectWithoutAccountable: {subject: input.subject}
+
+  # UNMAPPED: whether one position may hold the same duty on the same subject twice is not
+  # stated. A guard over the other rows would compare `subject`, which ESS refuses
+  # (ESS-COMMAND-002, as above). Taken: not refused.
+  # UNMAPPED: the position is not checked for existence here. With
+  # `when_related: {via: input.position_id, exists: false}` on this command the view
+  # ResponsibilitiesByPosition loses its scenario `reference/subject` (ESS-SYNTH-001), so the
+  # relation `position` is declared and no refusal reads it. The subject is named through a
+  # union and is not checked either (ESS-COMMAND-002).
+  - name: org.responsibility.AssignResponsibility
+    naming:
+      wire: assign-responsibility
+      display: Assign a responsibility
+    input:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: assigned
+        creates: org.responsibility.Responsibility
+        instance: responsibility_id
+        sets:
+          position_id: input.position_id
+          subject: input.subject
+          duty: input.duty
+          attribution: input.attribution
+          assigned_at: input.at
+        emits: [org.responsibility.ResponsibilityAssigned]
+        payload:
+          org.responsibility.ResponsibilityAssigned:
+            responsibility_id: input.responsibility_id
+            position_id: input.position_id
+            subject: input.subject
+            duty: input.duty
+            attribution: input.attribution
+            at: input.at
+        summary: The position holds this standing to the subject.
+
+  - name: org.responsibility.ReleaseResponsibility
+    naming:
+      wire: release-responsibility
+      display: Release a responsibility
+    input:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-responsibility
+        unknown_instance: true
+        error: org.responsibility.ResponsibilityNotFound
+        payload:
+          org.responsibility.ResponsibilityNotFound: {responsibility_id: input.responsibility_id}
+      - name: released
+        moves: org.responsibility.Responsibility.release
+        instance: responsibility_id
+        sets:
+          released_at: input.at
+        emits: [org.responsibility.ResponsibilityReleased]
+        payload:
+          org.responsibility.ResponsibilityReleased:
+            responsibility_id: input.responsibility_id
+            position_id: {subject: position_id}
+            subject: {subject: subject}
+            duty: {subject: duty}
+            at: input.at
+        summary: The position no longer holds this standing; the row stays on record.
+      - name: wrong-state
+        wrong_state: true
+        error: org.responsibility.ResponsibilityStateConflict
+        payload:
+          org.responsibility.ResponsibilityStateConflict: {state: {subject: state}}
+
+views:
+  # Who answers for what: one row per subject. A Vacant row is a subject without an accountable
+  # position.
+  # UNMAPPED: a read by subject (`filter: subject == param.subject`) is ESS-VIEW-002
+  # (`type_mismatch`: `==` does not admit a union), on this view and on Responsibilities. Taken:
+  # both views are unfiltered and publish `subject`; the reader selects.
+  - name: org.responsibility.Accountabilities
+    source: org.responsibility.Accountability
+    consistency: read_your_writes
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: since, type: Timestamp}
+      - {name: state, type: org.responsibility.Accountability.State}
+    naming:
+      wire: accountabilities
+      display: Accountable position by subject
+
+  # UNMAPPED: one view of everything a position answers for. A view has one source entity (two
+  # are ESS-VIEW-009, `unsupported_construct`), so there are two views: this one and
+  # ResponsibilitiesByPosition.
+  - name: org.responsibility.AccountabilitiesByPosition
+    source: org.responsibility.Accountability
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - position_id == param.position_id
+        - state == Held
+    fields:
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: since, type: Timestamp}
+    naming:
+      wire: accountabilities-by-position
+      display: Subjects a position is accountable for
+
+  - name: org.responsibility.Responsibilities
+    source: org.responsibility.Responsibility
+    consistency: read_your_writes
+    fields:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: assigned_at, type: Timestamp}
+      - {name: released_at, type: Optional<Timestamp>}
+      - {name: state, type: org.responsibility.Responsibility.State}
+    naming:
+      wire: responsibilities
+      display: Responsibilities
+
+  - name: org.responsibility.ResponsibilitiesByPosition
+    source: org.responsibility.Responsibility
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter: position_id == param.position_id
+    fields:
+      - {name: responsibility_id, type: org.shared.ResponsibilityId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: subject, type: org.responsibility.Subject}
+      - {name: duty, type: org.responsibility.Duty}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: assigned_at, type: Timestamp}
+      - {name: released_at, type: Optional<Timestamp>}
+      - {name: state, type: org.responsibility.Responsibility.State}
+      # Who answers for the subject this position has a duty to: read from the accountability of
+      # the same subject. Both are absent when the subject has no accountability on record; a
+      # Vacant one names the position that was accountable last.
+      - name: accountable_position_id
+        type: Optional<org.shared.PositionId>
+        field: {related: {via: subject, field: position_id}}
+      - name: accountability
+        type: Optional<org.responsibility.Accountability.State>
+        field: {related: {via: subject, field: state}}
+    naming:
+      wire: responsibilities-by-position
+      display: Responsibilities of a position

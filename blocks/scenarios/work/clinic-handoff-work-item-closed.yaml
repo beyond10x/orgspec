@@ -1,0 +1,68 @@
+# The invented clinic's triage desk offers an intake to a ward, and the intake is dropped while
+# the hand-off waits (the patient left). The ward's acceptance is refused: a closed work item
+# crosses no seam. The ward refuses the hand-off instead, and the item stays where it was.
+#
+#   0421 work item, 0422 hand-off, 0431 position triage, 0432 position ward
+type: ess-scenario/7
+domain: org.work
+scenario: clinic-handoff-work-item-closed
+summary: A hand-off whose work item was dropped while it waited is not accepted (WorkItemClosed); it is refused, and the item stays at the offering position.
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.work.OpenWorkItem
+    input:
+      work_item_id: 00000000-0000-4000-8000-000000000421
+      at_position: 00000000-0000-4000-8000-000000000431
+      at: 2026-11-27T09:00:00Z
+    outcome: opened
+  - at: 2026-11-27T09:00:01Z
+    command: org.work.OfferHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000422
+      work_item_id: 00000000-0000-4000-8000-000000000421
+      from: 00000000-0000-4000-8000-000000000431
+      to: 00000000-0000-4000-8000-000000000432
+      at: 2026-11-27T09:00:01Z
+    outcome: offered
+  - at: 2026-11-27T09:02:00Z
+    command: org.work.DropWorkItem
+    input:
+      work_item_id: 00000000-0000-4000-8000-000000000421
+      reason: The patient left before being seen.
+      at: 2026-11-27T09:02:00Z
+    outcome: dropped
+
+  - at: 2026-11-27T09:05:00Z
+    command: org.work.AcceptHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000422
+      accepted_by: 00000000-0000-4000-8000-000000000432
+      taken_from: 00000000-0000-4000-8000-000000000431
+      at: 2026-11-27T09:05:00Z
+    outcome: work-item-closed
+    error:
+      name: org.work.WorkItemClosed
+      fields: {work_item_id: 00000000-0000-4000-8000-000000000421}
+    no_events: [org.work.HandoffAccepted]
+  - at: 2026-11-27T09:05:01Z
+    command: org.work.RefuseHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000422
+      refused_by: 00000000-0000-4000-8000-000000000432
+      reason: The intake was dropped.
+      at: 2026-11-27T09:05:01Z
+    outcome: refused
+
+assert:
+  - view: org.work.Handoffs
+    contains:
+      handoff_id: 00000000-0000-4000-8000-000000000422
+      answered_at: 2026-11-27T09:05:01Z
+      state: Refused
+  - view: org.work.WorkItems
+    contains:
+      work_item_id: 00000000-0000-4000-8000-000000000421
+      at_position: 00000000-0000-4000-8000-000000000431
+      closed_at: 2026-11-27T09:02:00Z
+      state: Dropped

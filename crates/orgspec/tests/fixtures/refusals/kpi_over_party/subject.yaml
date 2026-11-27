@@ -1,0 +1,17 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: KPIs read over a party and over what one party holds.
+kpis:
+  - id: member_score
+    summary: Points per member.
+    block: party
+    measures: quality
+    unit: points
+    direction: higher
+  - id: hours_per_holder
+    summary: Hours per holder of a position.
+    block: assignment
+    measures: quality
+    unit: hours
+    direction: lower

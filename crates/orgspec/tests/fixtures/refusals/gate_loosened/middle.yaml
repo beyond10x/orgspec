@@ -1,0 +1,7 @@
+format: orgspec-type/1
+type: middle
+origin: invented
+extends: [lower]
+rules:
+  - id: shallow
+    gate: true

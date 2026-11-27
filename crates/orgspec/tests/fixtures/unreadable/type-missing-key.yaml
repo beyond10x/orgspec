@@ -1,0 +1,7 @@
+format: orgspec-type/1
+type: hasty
+origin: invented
+rules:
+  - summary: A rule that has no id.
+    rule: depth
+    max: 3

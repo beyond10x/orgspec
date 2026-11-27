@@ -1,0 +1,684 @@
+domain: org.policy
+
+summary: >-
+  A standing rule, principle or standard for one unit's scope, and the waivers from it. A policy
+  is a draft until a taken decision adopts it; without a decision it does not enter force. Each
+  later change of its statement is a new revision under a new decision. A waiver exempts one
+  unit or one position from one policy in force, for a reason, until an instant.
+
+naming:
+  wire: policy
+  display: Policy
+
+types:
+  - name: org.policy.Category
+    kind: enum
+    variants: [Rule, Principle, Standard]
+    naming:
+      summary: >-
+        What the statement asks. Rule: do or do not, checked case by case. Principle: a
+        direction to weigh when no rule fits. Standard: a measurable level to meet.
+
+  - name: org.policy.Grantee
+    kind: union
+    tag: type
+    variants:
+      Unit: org.shared.UnitId
+      Position: org.shared.PositionId
+    naming:
+      summary: >-
+        Who a waiver exempts: one unit or one position, never a party, so the waiver stays with
+        the seat. Exactly one, by construction.
+
+entities:
+  # UNMAPPED: that the adopting decision is about this policy is not held. A decision carries a
+  # question in words and names no policy (the decision block may not name this one). That the
+  # decision's scope is the policy's scope is not held either: `scope != subject.scope` in a
+  # `when_related:` guard is `unobservable_fact` (ESS-COMMAND-003, "`subject` is not a declared
+  # observable root"); the guard reads the decision row and the input, not the policy row.
+  - name: org.policy.Policy
+    naming:
+      summary: >-
+        One standing statement for one unit and the units it is applied to. `adopted_by` is the
+        decision that put the current revision into force; a draft has none. `revision` starts
+        at 1 and goes up by one with each revised statement. Draft until adopted, InForce until
+        retired.
+    identity:
+      name: policy_id
+      type: org.shared.PolicyId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: scope
+        type: org.shared.UnitId
+      - name: category
+        type: org.policy.Category
+      - name: title
+        type: String
+      - name: statement
+        type: String
+      - name: adopted_by
+        type: Optional<org.shared.DecisionId>
+      - name: revision
+        type: Integer
+      - name: drafted_at
+        type: Timestamp
+      - name: in_force_since
+        type: Optional<Timestamp>
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - name: adoption
+        kind: references
+        target: org.decision.Decision
+        cardinality: one
+        via: adopted_by
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: scope_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: scope
+    lifecycle:
+      initial: Draft
+      states:
+        - {name: Draft, summary: "Written down; it binds nobody."}
+        - {name: InForce, summary: "Adopted by a decision; it binds its scope."}
+        - {name: Retired, summary: "It binds nobody any more. The row stays as the record."}
+      terminal: [Retired]
+      transitions:
+        - {name: redraft, from: [Draft], to: Draft}
+        - {name: adopt, from: [Draft], to: InForce}
+        - {name: revise, from: [InForce], to: InForce}
+        - name: retire
+          from: [Draft, InForce]
+          to: Retired
+          summary: A draft that is dropped is retired the same way as a policy in force.
+
+  # UNMAPPED: that the exempted unit or position exists, and that it lies in the policy's scope,
+  # is not checked. The grantee is a union, and a guard reads the row an identifier names, not
+  # one inside a union (`when_related: {via: input.grantee, exists: false}` is ESS-COMMAND-002,
+  # `type_mismatch`: "no entity's identity"). Taken: the grantee is stored as given.
+  - name: org.policy.Waiver
+    naming:
+      summary: >-
+        One unit or one position is exempt from one policy, for a stated reason, until an
+        instant. `granted_by` is the decision that granted it. Granted until it is ended,
+        early or at its end.
+    identity:
+      name: waiver_id
+      type: org.shared.WaiverId
+    fields:
+      - name: policy_id
+        type: org.shared.PolicyId
+      - name: grantee
+        type: org.policy.Grantee
+      - name: reason
+        type: String
+      - name: until
+        type: Timestamp
+      - name: granted_by
+        type: org.shared.DecisionId
+      - name: granted_at
+        type: Timestamp
+      - name: ended_at
+        type: Optional<Timestamp>
+    relations:
+      - name: policy
+        kind: references
+        target: org.policy.Policy
+        cardinality: one
+        via: policy_id
+      - name: grant
+        kind: references
+        target: org.decision.Decision
+        cardinality: one
+        via: granted_by
+    lifecycle:
+      initial: Granted
+      states:
+        - {name: Granted, summary: "The grantee is exempt from the policy."}
+        - {name: Ended, summary: "The exemption is over. The row stays as the record."}
+      terminal: [Ended]
+      transitions:
+        - {name: end, from: [Granted], to: Ended}
+
+errors:
+  - name: org.policy.OrganizationNotFound
+    summary: No organization of this identity is on record, and no policy was drafted.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.policy.ScopeUnitNotFound
+    summary: No unit of this identity is on record, and no policy was drafted.
+    fields:
+      - {name: scope, type: org.shared.UnitId}
+
+  - name: org.policy.PolicyNotFound
+    summary: No policy has this identifier.
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+
+  - name: org.policy.PolicyStateConflict
+    summary: The policy is not in a state the command applies to; `state` is the state it is in.
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: state, type: org.policy.Policy.State}
+
+  - name: org.policy.PolicyWithoutDecision
+    summary: >-
+      Default deny. A policy enters force, and a policy in force takes a new statement, only
+      with a decision. The named decision is not on record or is not taken: it is open,
+      withdrawn or superseded. Nothing changed.
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: decision_id, type: org.shared.DecisionId}
+
+  - name: org.policy.PolicyNotInForce
+    summary: A waiver exempts from a policy in force. This one is a draft or retired.
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: state, type: org.policy.Policy.State}
+
+  - name: org.policy.WaiverAlreadyOver
+    summary: The end of the waiver is not after the instant it is granted at.
+    fields:
+      - {name: until, type: Timestamp}
+
+  - name: org.policy.WaiverWithoutDecision
+    summary: >-
+      Default deny. An exemption from a policy is granted by a decision. The named decision is
+      not on record or is not taken. Nothing was recorded.
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+
+  - name: org.policy.WaiverNotFound
+    summary: No waiver has this identifier.
+    fields:
+      - {name: waiver_id, type: org.shared.WaiverId}
+
+  - name: org.policy.WaiverStateConflict
+    summary: The waiver has already ended.
+    fields:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: state, type: org.policy.Waiver.State}
+
+events:
+  - name: org.policy.PolicyDrafted
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: category, type: org.policy.Category}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.policy.PolicyRedrafted
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.policy.PolicyAdopted
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: category, type: org.policy.Category}
+      - {name: adopted_by, type: org.shared.DecisionId}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.policy.PolicyRevised
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: previous_revision, type: Integer}
+      - {name: revision, type: Integer}
+      - {name: statement, type: String}
+      - {name: adopted_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.policy.PolicyRetired
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: retired_from, type: org.policy.Policy.State}
+      - {name: at, type: Timestamp}
+
+  - name: org.policy.WaiverGranted
+    fields:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: grantee, type: org.policy.Grantee}
+      - {name: reason, type: String}
+      - {name: until, type: Timestamp}
+      - {name: granted_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+
+  # `until` beside `at` tells an early end from an end at its time.
+  - name: org.policy.WaiverEnded
+    fields:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: until, type: Timestamp}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.policy.DraftPolicy
+    naming:
+      wire: draft-policy
+      display: Draft a policy
+      summary: Writes a policy down as a draft at revision 1. A draft binds nobody.
+    input:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: category, type: org.policy.Category}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.policy.OrganizationNotFound
+        payload:
+          org.policy.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: no-such-scope
+        when_related: {via: input.scope, exists: false}
+        error: org.policy.ScopeUnitNotFound
+        payload:
+          org.policy.ScopeUnitNotFound: {scope: input.scope}
+      - name: drafted
+        creates: org.policy.Policy
+        instance: policy_id
+        sets:
+          organization_id: input.organization_id
+          scope: input.scope
+          category: input.category
+          title: input.title
+          statement: input.statement
+          revision: 1
+          drafted_at: input.at
+        emits: [org.policy.PolicyDrafted]
+        payload:
+          org.policy.PolicyDrafted:
+            policy_id: input.policy_id
+            organization_id: input.organization_id
+            scope: input.scope
+            category: input.category
+            title: input.title
+            statement: input.statement
+            at: input.at
+        summary: The policy is a Draft.
+
+  - name: org.policy.RedraftPolicy
+    naming:
+      wire: redraft-policy
+      display: Change a draft policy
+      summary: >-
+        Replaces the title and the statement of a draft. The revision stays: nothing was in
+        force yet, so nothing in force changed.
+    input:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-policy
+        unknown_instance: true
+        error: org.policy.PolicyNotFound
+        payload:
+          org.policy.PolicyNotFound: {policy_id: input.policy_id}
+      - name: redrafted
+        moves: org.policy.Policy.redraft
+        instance: policy_id
+        sets:
+          title: input.title
+          statement: input.statement
+        emits: [org.policy.PolicyRedrafted]
+        payload:
+          org.policy.PolicyRedrafted:
+            policy_id: input.policy_id
+            title: input.title
+            statement: input.statement
+            at: input.at
+        summary: The draft holds the new title and statement.
+      - name: wrong-state
+        wrong_state: true
+        error: org.policy.PolicyStateConflict
+        payload:
+          org.policy.PolicyStateConflict:
+            policy_id: input.policy_id
+            state: {subject: state}
+        summary: A policy in force changes with RevisePolicy, under a decision.
+
+  - name: org.policy.AdoptPolicy
+    naming:
+      wire: adopt-policy
+      display: Adopt a policy
+      summary: >-
+        Puts a draft into force under a decision. Default deny: the decision must be on record
+        and taken.
+    input:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: adopted_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-policy
+        unknown_instance: true
+        error: org.policy.PolicyNotFound
+        payload:
+          org.policy.PolicyNotFound: {policy_id: input.policy_id}
+      - name: no-such-decision
+        when_related: {via: input.adopted_by, exists: false}
+        error: org.policy.PolicyWithoutDecision
+        payload:
+          org.policy.PolicyWithoutDecision:
+            policy_id: input.policy_id
+            decision_id: input.adopted_by
+      - name: decision-not-taken
+        when_related:
+          via: input.adopted_by
+          predicate:
+            state: {not_in: [Decided, TakenOnDefault]}
+        error: org.policy.PolicyWithoutDecision
+        payload:
+          org.policy.PolicyWithoutDecision:
+            policy_id: input.policy_id
+            decision_id: input.adopted_by
+        summary: An open, withdrawn or superseded decision adopts nothing.
+      - name: adopted
+        moves: org.policy.Policy.adopt
+        instance: policy_id
+        sets:
+          adopted_by: input.adopted_by
+          in_force_since: input.at
+        emits: [org.policy.PolicyAdopted]
+        payload:
+          org.policy.PolicyAdopted:
+            policy_id: input.policy_id
+            organization_id: {subject: organization_id}
+            scope: {subject: scope}
+            category: {subject: category}
+            adopted_by: input.adopted_by
+            revision: {subject: revision}
+            at: input.at
+        summary: The policy is InForce.
+      - name: wrong-state
+        wrong_state: true
+        error: org.policy.PolicyStateConflict
+        payload:
+          org.policy.PolicyStateConflict:
+            policy_id: input.policy_id
+            state: {subject: state}
+        summary: Only a draft is adopted.
+
+  - name: org.policy.RevisePolicy
+    naming:
+      wire: revise-policy
+      display: Revise a policy in force
+      summary: >-
+        Replaces the statement of a policy in force under a new decision. The revision goes up
+        by one and `adopted_by` names the new decision. The earlier statement stays in the
+        events.
+    input:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: statement, type: String}
+      - {name: adopted_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-policy
+        unknown_instance: true
+        error: org.policy.PolicyNotFound
+        payload:
+          org.policy.PolicyNotFound: {policy_id: input.policy_id}
+      - name: no-such-decision
+        when_related: {via: input.adopted_by, exists: false}
+        error: org.policy.PolicyWithoutDecision
+        payload:
+          org.policy.PolicyWithoutDecision:
+            policy_id: input.policy_id
+            decision_id: input.adopted_by
+      - name: decision-not-taken
+        when_related:
+          via: input.adopted_by
+          predicate:
+            state: {not_in: [Decided, TakenOnDefault]}
+        error: org.policy.PolicyWithoutDecision
+        payload:
+          org.policy.PolicyWithoutDecision:
+            policy_id: input.policy_id
+            decision_id: input.adopted_by
+      - name: revised
+        moves: org.policy.Policy.revise
+        instance: policy_id
+        sets:
+          statement: input.statement
+          adopted_by: input.adopted_by
+          revision: {increment: 1}
+        emits: [org.policy.PolicyRevised]
+        payload:
+          org.policy.PolicyRevised:
+            policy_id: input.policy_id
+            previous_revision: {subject: revision}
+            revision: {expr: "subject.revision + 1"}
+            statement: input.statement
+            adopted_by: input.adopted_by
+            at: input.at
+        summary: The policy in force holds the new statement at the next revision.
+      - name: wrong-state
+        wrong_state: true
+        error: org.policy.PolicyStateConflict
+        payload:
+          org.policy.PolicyStateConflict:
+            policy_id: input.policy_id
+            state: {subject: state}
+        summary: A draft changes with RedraftPolicy; a retired policy does not change.
+
+  # Waivers of a retired policy are not moved by this command. They exempt from nothing and stay
+  # Granted until each is ended.
+  - name: org.policy.RetirePolicy
+    naming:
+      wire: retire-policy
+      display: Retire a policy
+      summary: Takes a policy out of force, or drops a draft. The row stays as the record.
+    input:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-policy
+        unknown_instance: true
+        error: org.policy.PolicyNotFound
+        payload:
+          org.policy.PolicyNotFound: {policy_id: input.policy_id}
+      - name: retired
+        moves: org.policy.Policy.retire
+        instance: policy_id
+        sets:
+          retired_at: input.at
+        emits: [org.policy.PolicyRetired]
+        payload:
+          org.policy.PolicyRetired:
+            policy_id: input.policy_id
+            retired_from: {subject: state}
+            at: input.at
+        summary: The policy is Retired.
+      - name: wrong-state
+        wrong_state: true
+        error: org.policy.PolicyStateConflict
+        payload:
+          org.policy.PolicyStateConflict:
+            policy_id: input.policy_id
+            state: {subject: state}
+        summary: The policy had already been retired.
+
+  - name: org.policy.GrantWaiver
+    naming:
+      wire: grant-waiver
+      display: Grant a waiver
+      summary: >-
+        Exempts one unit or one position from a policy in force, for a reason, until an
+        instant. Default deny: the granting decision must be on record and taken.
+    input:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: grantee, type: org.policy.Grantee}
+      - {name: reason, type: String}
+      - {name: until, type: Timestamp}
+      - {name: granted_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-over
+        when: until <= at
+        error: org.policy.WaiverAlreadyOver
+        payload:
+          org.policy.WaiverAlreadyOver: {until: input.until}
+      - name: no-such-policy
+        when_related: {via: input.policy_id, exists: false}
+        error: org.policy.PolicyNotFound
+        payload:
+          org.policy.PolicyNotFound: {policy_id: input.policy_id}
+      - name: no-such-decision
+        when_related: {via: input.granted_by, exists: false}
+        error: org.policy.WaiverWithoutDecision
+        payload:
+          org.policy.WaiverWithoutDecision: {decision_id: input.granted_by}
+      - name: policy-not-in-force
+        when_related: {via: input.policy_id, predicate: state != InForce}
+        error: org.policy.PolicyNotInForce
+        payload:
+          org.policy.PolicyNotInForce:
+            policy_id: input.policy_id
+            state: {related: {via: input.policy_id, field: state}}
+      - name: decision-not-taken
+        when_related:
+          via: input.granted_by
+          predicate:
+            state: {not_in: [Decided, TakenOnDefault]}
+        error: org.policy.WaiverWithoutDecision
+        payload:
+          org.policy.WaiverWithoutDecision: {decision_id: input.granted_by}
+      - name: granted
+        creates: org.policy.Waiver
+        instance: waiver_id
+        sets:
+          policy_id: input.policy_id
+          grantee: input.grantee
+          reason: input.reason
+          until: input.until
+          granted_by: input.granted_by
+          granted_at: input.at
+        emits: [org.policy.WaiverGranted]
+        payload:
+          org.policy.WaiverGranted:
+            waiver_id: input.waiver_id
+            policy_id: input.policy_id
+            grantee: input.grantee
+            reason: input.reason
+            until: input.until
+            granted_by: input.granted_by
+            at: input.at
+        summary: The waiver is Granted.
+
+  # The contract has no clock. A consumer's process sends this command when `until` has passed;
+  # sent before, it ends the waiver early.
+  - name: org.policy.EndWaiver
+    naming:
+      wire: end-waiver
+      display: End a waiver
+      summary: Ends an exemption, at its end or before it.
+    input:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-waiver
+        unknown_instance: true
+        error: org.policy.WaiverNotFound
+        payload:
+          org.policy.WaiverNotFound: {waiver_id: input.waiver_id}
+      - name: ended
+        moves: org.policy.Waiver.end
+        instance: waiver_id
+        sets:
+          ended_at: input.at
+        emits: [org.policy.WaiverEnded]
+        payload:
+          org.policy.WaiverEnded:
+            waiver_id: input.waiver_id
+            policy_id: {subject: policy_id}
+            until: {subject: until}
+            at: input.at
+        summary: The waiver is Ended.
+      - name: wrong-state
+        wrong_state: true
+        error: org.policy.WaiverStateConflict
+        payload:
+          org.policy.WaiverStateConflict:
+            waiver_id: input.waiver_id
+            state: {subject: state}
+
+views:
+  - name: org.policy.Policies
+    source: org.policy.Policy
+    consistency: read_your_writes
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: category, type: org.policy.Category}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: adopted_by, type: Optional<org.shared.DecisionId>}
+      - {name: revision, type: Integer}
+      - {name: drafted_at, type: Timestamp}
+      - {name: in_force_since, type: Optional<Timestamp>}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.policy.Policy.State}
+    naming:
+      wire: policies
+      display: Policies
+
+  # What binds one organization now.
+  - name: org.policy.PoliciesInForce
+    source: org.policy.Policy
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter:
+      all:
+        - organization_id == param.organization_id
+        - state == InForce
+    fields:
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: category, type: org.policy.Category}
+      - {name: title, type: String}
+      - {name: statement, type: String}
+      - {name: adopted_by, type: Optional<org.shared.DecisionId>}
+      - {name: revision, type: Integer}
+    naming:
+      wire: policies-in-force
+      display: Policies in force
+
+  # Who is exempt from which policy, and who was.
+  - name: org.policy.Waivers
+    source: org.policy.Waiver
+    consistency: read_your_writes
+    fields:
+      - {name: waiver_id, type: org.shared.WaiverId}
+      - {name: policy_id, type: org.shared.PolicyId}
+      - {name: grantee, type: org.policy.Grantee}
+      - {name: reason, type: String}
+      - {name: until, type: Timestamp}
+      - {name: granted_by, type: org.shared.DecisionId}
+      - {name: granted_at, type: Timestamp}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.policy.Waiver.State}
+    naming:
+      wire: waivers
+      display: Waivers

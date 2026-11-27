@@ -1,0 +1,17 @@
+format: orgspec-organization/1
+organization: library
+type: measured
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, basis: function, in: library }
+  stacks:    { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  sorters:   { block: position, in: stacks, role: librarian, seats: 4, held_by: mixed, agent_share: 0.75 }
+  weekly:    { block: forum, convenes: desk, every: 1w }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: sorters, to: head, carries: answers_to }
+border: [weekly]

@@ -1,0 +1,416 @@
+domain: org.delegation
+
+summary: >-
+  One position passes one class of decisions to another position, with an optional limit in
+  money and an optional end. A delegation names seats, never parties, so it survives a change of
+  holder. It is granted, and later revoked by the delegator or expired at its end; nothing else
+  about it changes.
+
+naming:
+  wire: delegation
+  display: Delegation
+
+entities:
+  # UNMAPPED: that the delegating position holds the class is not held here: it holds it through
+  # a decision right in force for a unit's scope, or through a delegation it received with
+  # `may_pass_on`, and telling which is a guard over a set of rows chosen by a chain (the
+  # position, its unit, the right). Left to the structural check `delegation_without_right`.
+  # UNMAPPED: `may_pass_on` is recorded and not enforced, for the same reason: refusing a grant
+  # by a position that received the class without it needs the delegation it received.
+  # UNMAPPED: no arithmetic in a guard and no guard over a chain of rows, so the limit of the
+  # delegating position is not looked up. GrantDelegation carries it as `delegator_limit`, as
+  # the design says, and the caller is trusted to state it.
+  - name: org.delegation.Delegation
+    naming:
+      summary: >-
+        Position `from` passes the decisions of one class to position `to`. `limit` caps the
+        amount one decision may commit; absent means no cap. `until` is the instant the
+        delegation ends by itself; absent means it lasts until revoked. `may_pass_on` says
+        whether `to` may delegate the class further.
+    identity:
+      name: delegation_id
+      type: org.shared.DelegationId
+    fields:
+      - name: from
+        type: org.shared.PositionId
+      - name: to
+        type: org.shared.PositionId
+      - name: class_id
+        type: org.shared.DecisionClassId
+      - name: limit
+        type: Optional<org.shared.Money>
+      - name: until
+        type: Optional<Timestamp>
+      - name: may_pass_on
+        type: Boolean
+      - name: granted_at
+        type: Timestamp
+      - name: ended_at
+        type: Optional<Timestamp>
+    relations:
+      - name: class
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: one
+        via: class_id
+      - name: from_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: from
+      - name: to_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: to
+    lifecycle:
+      initial: Granted
+      states:
+        - {name: Granted, summary: "The receiving position may decide the class."}
+        - {name: Revoked, summary: "Taken back before its end."}
+        - {name: Expired, summary: "Its end passed."}
+      terminal: [Revoked, Expired]
+      transitions:
+        - {name: revoke, from: [Granted], to: Revoked}
+        - {name: expire, from: [Granted], to: Expired}
+
+errors:
+  - name: org.delegation.DelegationToSelf
+    summary: The delegating and the receiving position are the same. Nothing was recorded.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.delegation.DelegationAlreadyOver
+    summary: The end of the delegation is not after the instant it is granted at.
+    fields:
+      - {name: until, type: Optional<Timestamp>}
+
+  - name: org.delegation.LimitExceedsDelegator
+    summary: >-
+      The command carries the delegating position's own limit, and the delegation would pass on
+      more: a higher limit, or no limit at all. Nobody delegates more than they hold.
+    fields:
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: delegator_limit, type: Optional<org.shared.Money>}
+
+  - name: org.delegation.LimitCurrencyMismatch
+    summary: >-
+      The delegation's limit and the delegating position's limit are in two currencies, so
+      neither is above the other. Nothing was recorded.
+    fields:
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: delegator_limit, type: Optional<org.shared.Money>}
+
+  - name: org.delegation.DecisionClassNotFound
+    summary: The command names a decision class that is not on record.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.delegation.RetiredDecisionClass
+    summary: A retired decision class is not delegated.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.delegation.DelegationNotFound
+    summary: No delegation has this identifier.
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+
+  - name: org.delegation.DelegationStateConflict
+    summary: The delegation is already revoked or expired; `state` is the state it is in.
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: state, type: org.delegation.Delegation.State}
+
+  - name: org.delegation.DelegationHasNoEnd
+    summary: The delegation was granted without an end, so it does not expire; it is revoked.
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+
+  - name: org.delegation.DelegationNotOver
+    summary: The end of the delegation is after the instant the command names.
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: until, type: Optional<Timestamp>}
+
+events:
+  - name: org.delegation.DelegationGranted
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: until, type: Optional<Timestamp>}
+      - {name: may_pass_on, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.delegation.DelegationRevoked
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: at, type: Timestamp}
+
+  - name: org.delegation.DelegationExpired
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: that the two positions exist is not checked. A refusal
+  # `when_related: {via: input.from, exists: false}` validates, alone or beside the same refusal
+  # over `input.to`, and synthesis then writes no scenario for `to-self` (ESS-SYNTH-003): the
+  # branch needs one position row under both inputs. Taken: both identifiers are stored as
+  # given, and the relations `from_position` and `to_position` declare what they name.
+  - name: org.delegation.GrantDelegation
+    naming:
+      wire: grant-delegation
+      display: Grant a delegation
+      summary: >-
+        The delegating position passes one class to another position. `delegator_limit` is the
+        delegating position's own limit for the class; when the command carries it, the
+        delegation's limit may not be above it.
+    input:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: delegator_limit, type: Optional<org.shared.Money>}
+      - {name: until, type: Optional<Timestamp>}
+      - {name: may_pass_on, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: to-self
+        when: from == to
+        error: org.delegation.DelegationToSelf
+        payload:
+          org.delegation.DelegationToSelf: {position_id: input.from}
+      - name: already-over
+        when:
+          all:
+            - defined(until)
+            - until <= at
+        error: org.delegation.DelegationAlreadyOver
+        payload:
+          org.delegation.DelegationAlreadyOver: {until: input.until}
+      - name: unlimited-from-limited
+        when:
+          all:
+            - defined(delegator_limit)
+            - not defined(limit)
+        error: org.delegation.LimitExceedsDelegator
+        payload:
+          org.delegation.LimitExceedsDelegator:
+            limit: input.limit
+            delegator_limit: input.delegator_limit
+        summary: A position with a limit does not pass the class on without one.
+      - name: limit-in-another-currency
+        when:
+          all:
+            - defined(delegator_limit)
+            - defined(limit)
+            - limit.currency != delegator_limit.currency
+        error: org.delegation.LimitCurrencyMismatch
+        payload:
+          org.delegation.LimitCurrencyMismatch:
+            limit: input.limit
+            delegator_limit: input.delegator_limit
+      - name: limit-exceeds-delegator
+        when:
+          all:
+            - defined(delegator_limit)
+            - defined(limit)
+            - limit.micro_units > delegator_limit.micro_units
+        error: org.delegation.LimitExceedsDelegator
+        payload:
+          org.delegation.LimitExceedsDelegator:
+            limit: input.limit
+            delegator_limit: input.delegator_limit
+      - name: no-such-class
+        when_related: {via: input.class_id, exists: false}
+        error: org.delegation.DecisionClassNotFound
+        payload:
+          org.delegation.DecisionClassNotFound: {class_id: input.class_id}
+      - name: class-retired
+        when_related: {via: input.class_id, predicate: state == Retired}
+        error: org.delegation.RetiredDecisionClass
+        payload:
+          org.delegation.RetiredDecisionClass: {class_id: input.class_id}
+      - name: granted
+        creates: org.delegation.Delegation
+        instance: delegation_id
+        sets:
+          from: input.from
+          to: input.to
+          class_id: input.class_id
+          limit: input.limit
+          until: input.until
+          may_pass_on: input.may_pass_on
+          granted_at: input.at
+        emits: [org.delegation.DelegationGranted]
+        payload:
+          org.delegation.DelegationGranted:
+            delegation_id: input.delegation_id
+            from: input.from
+            to: input.to
+            class_id: input.class_id
+            limit: input.limit
+            until: input.until
+            may_pass_on: input.may_pass_on
+            at: input.at
+        summary: The delegation is Granted.
+
+  - name: org.delegation.RevokeDelegation
+    naming:
+      wire: revoke-delegation
+      display: Revoke a delegation
+      summary: The delegating position takes the class back before the delegation's end.
+    input:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-delegation
+        unknown_instance: true
+        error: org.delegation.DelegationNotFound
+        payload:
+          org.delegation.DelegationNotFound: {delegation_id: input.delegation_id}
+      - name: revoked
+        moves: org.delegation.Delegation.revoke
+        instance: delegation_id
+        sets:
+          ended_at: input.at
+        emits: [org.delegation.DelegationRevoked]
+        payload:
+          org.delegation.DelegationRevoked:
+            delegation_id: input.delegation_id
+            from: {subject: from}
+            to: {subject: to}
+            class_id: {subject: class_id}
+            at: input.at
+        summary: The delegation is Revoked. Decisions taken under it stand.
+      - name: wrong-state
+        wrong_state: true
+        error: org.delegation.DelegationStateConflict
+        payload:
+          org.delegation.DelegationStateConflict:
+            delegation_id: input.delegation_id
+            state: {subject: state}
+
+  # The contract has no clock. A consumer's process sends this command when the end has passed;
+  # the command refuses an instant before the end.
+  - name: org.delegation.ExpireDelegation
+    naming:
+      wire: expire-delegation
+      display: Expire a delegation
+      summary: Records that the end of the delegation has passed.
+    input:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-delegation
+        unknown_instance: true
+        error: org.delegation.DelegationNotFound
+        payload:
+          org.delegation.DelegationNotFound: {delegation_id: input.delegation_id}
+      - name: no-end
+        when_subject:
+          predicate: not defined(until)
+        error: org.delegation.DelegationHasNoEnd
+        payload:
+          org.delegation.DelegationHasNoEnd: {delegation_id: input.delegation_id}
+      - name: not-over
+        when_subject:
+          predicate: until > input.at
+        error: org.delegation.DelegationNotOver
+        payload:
+          org.delegation.DelegationNotOver:
+            delegation_id: input.delegation_id
+            until: {subject: until}
+      - name: expired
+        moves: org.delegation.Delegation.expire
+        instance: delegation_id
+        sets:
+          ended_at: input.at
+        emits: [org.delegation.DelegationExpired]
+        payload:
+          org.delegation.DelegationExpired:
+            delegation_id: input.delegation_id
+            from: {subject: from}
+            to: {subject: to}
+            class_id: {subject: class_id}
+            at: input.at
+        summary: The delegation is Expired. Decisions taken under it stand.
+      - name: wrong-state
+        wrong_state: true
+        error: org.delegation.DelegationStateConflict
+        payload:
+          org.delegation.DelegationStateConflict:
+            delegation_id: input.delegation_id
+            state: {subject: state}
+
+views:
+  - name: org.delegation.Delegations
+    source: org.delegation.Delegation
+    consistency: read_your_writes
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: until, type: Optional<Timestamp>}
+      - {name: may_pass_on, type: Boolean}
+      - {name: granted_at, type: Timestamp}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.delegation.Delegation.State}
+    naming:
+      wire: delegations
+      display: Delegations
+
+  # What one position may decide through delegation now.
+  - name: org.delegation.DelegationsToPosition
+    source: org.delegation.Delegation
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - to == param.position_id
+        - state == Granted
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: from, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: until, type: Optional<Timestamp>}
+      - {name: may_pass_on, type: Boolean}
+    naming:
+      wire: delegations-to-position
+      display: Delegations a position received
+
+  # What one position has passed on and not taken back.
+  - name: org.delegation.DelegationsFromPosition
+    source: org.delegation.Delegation
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - from == param.position_id
+        - state == Granted
+    fields:
+      - {name: delegation_id, type: org.shared.DelegationId}
+      - {name: to, type: org.shared.PositionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: limit, type: Optional<org.shared.Money>}
+      - {name: until, type: Optional<Timestamp>}
+      - {name: may_pass_on, type: Boolean}
+    naming:
+      wire: delegations-from-position
+      display: Delegations a position granted

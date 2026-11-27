@@ -1,0 +1,397 @@
+domain: org.budget
+
+summary: >-
+  An amount of money given to a unit for a period, optionally for a goal. A budget is proposed,
+  approved by a decision and closed. Its spend is recorded as a running total; a total above
+  the amount is accepted and reported as an overrun, because an overrun is a fact and not a
+  refusal. Who answers for a budget is a row of `org.responsibility`.
+
+naming:
+  wire: budget
+  display: Budget
+
+entities:
+  - name: org.budget.Budget
+    naming:
+      summary: >-
+        One amount for one unit and one period. `spent` is the total spent so far, as the last
+        record stated it, in the currency of `amount`. `approved_by` is the decision that
+        approved it.
+    identity:
+      name: budget_id
+      type: org.shared.BudgetId
+    fields:
+      # UNMAPPED: ProposeBudget refuses an organization and a unit that are not on record. That
+      # the unit belongs to the organization is not checked: a guard reads one related row and
+      # the input, and the unit's organization is a field of the unit row. Open question for
+      # the owner.
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: unit_id
+        type: org.shared.UnitId
+      - name: period
+        type: org.shared.Period
+      - name: amount
+        type: org.shared.Money
+      - name: goal_id
+        type: Optional<org.shared.GoalId>
+      - name: approved_by
+        type: Optional<org.shared.DecisionId>
+      - name: spent
+        type: org.shared.Money
+    relations:
+      - name: goal
+        kind: references
+        target: org.goal.Goal
+        cardinality: one
+        via: goal_id
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: unit_id
+      - name: approval
+        kind: references
+        target: org.decision.Decision
+        cardinality: one
+        via: approved_by
+    lifecycle:
+      initial: Proposed
+      states: [Proposed, Approved, Closed]
+      terminal: [Closed]
+      transitions:
+        - name: approve
+          from: [Proposed]
+          to: Approved
+        # UNMAPPED: the lifecycle is Proposed → Approved → Closed with no other exit from
+        # Proposed, so a budget that is proposed and never approved stays Proposed. Open
+        # question for the owner: add Proposed to `from` here, or a state Rejected.
+        - name: close
+          from: [Approved]
+          to: Closed
+
+errors:
+  - name: org.budget.BudgetExists
+    summary: A budget of this identifier exists, and nothing was proposed.
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+
+  - name: org.budget.NoSuchBudget
+    summary: No budget of this identifier was proposed.
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+
+  - name: org.budget.UnknownOrganization
+    summary: The budget names an organization that is not on record, and nothing was proposed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.budget.UnknownUnit
+    summary: The budget names a unit that is not on record, and nothing was proposed.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+  - name: org.budget.UnknownGoal
+    summary: The budget names a goal nobody proposed, and nothing was proposed.
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+
+  - name: org.budget.BudgetWithoutDecision
+    summary: A budget is approved only by a decision; the command named none, and nothing changed.
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+
+  - name: org.budget.BudgetStateConflict
+    summary: The budget is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.budget.Budget.State}
+
+  - name: org.budget.BudgetNotApproved
+    summary: Spend is recorded only against an Approved budget, and nothing was recorded.
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+
+  - name: org.budget.CurrencyMismatch
+    summary: >-
+      The spend is in another currency than the budget's amount, so the two cannot be compared,
+      and nothing was recorded.
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: currency, type: String}
+
+events:
+  - name: org.budget.BudgetProposed
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: period, type: org.shared.Period}
+      - {name: amount, type: org.shared.Money}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.budget.BudgetApproved
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: approved_by, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.budget.BudgetSpendRecorded
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: spent, type: org.shared.Money}
+      - {name: at, type: Timestamp}
+
+  - name: org.budget.BudgetOverrun
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: amount, type: org.shared.Money}
+      - {name: spent, type: org.shared.Money}
+      - {name: at, type: Timestamp}
+
+  - name: org.budget.BudgetClosed
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: spent, type: org.shared.Money}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.budget.ProposeBudget
+    naming:
+      wire: propose-budget
+      display: Propose a budget
+    input:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: period, type: org.shared.Period}
+      - {name: amount, type: org.shared.Money}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-proposed
+        existing_instance: true
+        error: org.budget.BudgetExists
+        payload:
+          org.budget.BudgetExists: {budget_id: input.budget_id}
+      - name: unknown-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.budget.UnknownOrganization
+        payload:
+          org.budget.UnknownOrganization: {organization_id: input.organization_id}
+      - name: unknown-unit
+        when_related: {via: input.unit_id, exists: false}
+        error: org.budget.UnknownUnit
+        payload:
+          org.budget.UnknownUnit: {unit_id: input.unit_id}
+      - name: unknown-goal
+        when_related: {via: input.goal_id, exists: false}
+        error: org.budget.UnknownGoal
+        payload:
+          org.budget.UnknownGoal: {goal_id: input.goal_id}
+      - name: proposed
+        creates: org.budget.Budget
+        instance: budget_id
+        sets:
+          organization_id: input.organization_id
+          unit_id: input.unit_id
+          period: input.period
+          amount: input.amount
+          goal_id: input.goal_id
+          spent: {micro_units: 0, currency: input.amount.currency}
+        emits: [org.budget.BudgetProposed]
+        payload:
+          org.budget.BudgetProposed:
+            budget_id: input.budget_id
+            organization_id: input.organization_id
+            unit_id: input.unit_id
+            period: input.period
+            amount: input.amount
+            goal_id: input.goal_id
+            at: input.at
+        summary: The budget is Proposed, with nothing spent.
+
+  - name: org.budget.ApproveBudget
+    naming:
+      wire: approve-budget
+      display: Approve a budget by a decision
+    input:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: approved_by, type: Optional<org.shared.DecisionId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # UNMAPPED: no guard checks that `approved_by` names a decision that exists and is
+      # Decided. The refusal `when_related: {via: input.approved_by, exists: false}` validates,
+      # and synthesis then writes no scenario for `without-decision` (ESS-SYNTH-003), for
+      # `no-such-budget` and for the refusals of this command in the states Approved and Closed
+      # (ESS-SYNTH-008): four scenarios for one. Taken: the identifier is stored as given, and
+      # the relation `approval` declares what it names.
+      - name: without-decision
+        when: not defined(approved_by)
+        error: org.budget.BudgetWithoutDecision
+        payload:
+          org.budget.BudgetWithoutDecision: {budget_id: input.budget_id}
+      - name: no-such-budget
+        unknown_instance: true
+        error: org.budget.NoSuchBudget
+        payload:
+          org.budget.NoSuchBudget: {budget_id: input.budget_id}
+      - name: approved
+        moves: org.budget.Budget.approve
+        instance: budget_id
+        sets:
+          approved_by: input.approved_by
+        emits: [org.budget.BudgetApproved]
+        payload:
+          org.budget.BudgetApproved:
+            budget_id: input.budget_id
+            approved_by: input.approved_by
+            at: input.at
+        summary: The budget is Approved and spend can be recorded against it.
+      - name: wrong-state
+        wrong_state: true
+        error: org.budget.BudgetStateConflict
+        payload:
+          org.budget.BudgetStateConflict: {state: {subject: state}}
+
+  - name: org.budget.RecordSpend
+    naming:
+      wire: record-spend
+      display: Record the total spent against a budget
+      summary: >-
+        The command carries the running total, not one expense. A total above the amount is
+        recorded and reported as an overrun.
+    input:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: spent, type: org.shared.Money}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-budget
+        unknown_instance: true
+        error: org.budget.NoSuchBudget
+        payload:
+          org.budget.NoSuchBudget: {budget_id: input.budget_id}
+      - name: not-approved
+        when_subject: {predicate: state != Approved}
+        error: org.budget.BudgetNotApproved
+        payload:
+          org.budget.BudgetNotApproved: {budget_id: input.budget_id}
+      - name: currency-mismatch
+        when_subject: {predicate: amount.currency != input.spent.currency}
+        error: org.budget.CurrencyMismatch
+        payload:
+          org.budget.CurrencyMismatch:
+            budget_id: input.budget_id
+            currency: input.spent.currency
+      - name: overrun
+        when_subject: {predicate: amount.micro_units < input.spent.micro_units}
+        updates: org.budget.Budget
+        instance: budget_id
+        sets:
+          spent: input.spent
+        emits: [org.budget.BudgetSpendRecorded, org.budget.BudgetOverrun]
+        payload:
+          org.budget.BudgetSpendRecorded:
+            budget_id: input.budget_id
+            spent: input.spent
+            at: input.at
+          org.budget.BudgetOverrun:
+            budget_id: input.budget_id
+            amount: {subject: amount}
+            spent: input.spent
+            at: input.at
+        summary: The total is above the amount. It is recorded, and the overrun is a fact.
+      - name: recorded
+        updates: org.budget.Budget
+        instance: budget_id
+        sets:
+          spent: input.spent
+        emits: [org.budget.BudgetSpendRecorded]
+        payload:
+          org.budget.BudgetSpendRecorded:
+            budget_id: input.budget_id
+            spent: input.spent
+            at: input.at
+        summary: The new total replaces the old one.
+
+  - name: org.budget.CloseBudget
+    naming:
+      wire: close-budget
+      display: Close a budget
+    input:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-budget
+        unknown_instance: true
+        error: org.budget.NoSuchBudget
+        payload:
+          org.budget.NoSuchBudget: {budget_id: input.budget_id}
+      - name: closed
+        moves: org.budget.Budget.close
+        instance: budget_id
+        emits: [org.budget.BudgetClosed]
+        payload:
+          org.budget.BudgetClosed:
+            budget_id: input.budget_id
+            spent: {subject: spent}
+            at: input.at
+        summary: The budget takes no more spend; the event carries the final total.
+      - name: wrong-state
+        wrong_state: true
+        error: org.budget.BudgetStateConflict
+        payload:
+          org.budget.BudgetStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.budget.Budgets
+    source: org.budget.Budget
+    consistency: read_your_writes
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: period, type: org.shared.Period}
+      - {name: amount, type: org.shared.Money}
+      - {name: goal_id, type: Optional<org.shared.GoalId>}
+      - {name: approved_by, type: Optional<org.shared.DecisionId>}
+      - {name: spent, type: org.shared.Money}
+      - {name: state, type: org.budget.Budget.State}
+    naming:
+      wire: budgets
+      display: Budgets
+
+  - name: org.budget.BudgetsOfUnit
+    source: org.budget.Budget
+    consistency: read_your_writes
+    params:
+      - {name: unit_id, type: org.shared.UnitId}
+    filter: unit_id == param.unit_id
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: period, type: org.shared.Period}
+      - {name: amount, type: org.shared.Money}
+      - {name: spent, type: org.shared.Money}
+      - {name: state, type: org.budget.Budget.State}
+    naming:
+      wire: budgets-of-unit
+      display: Budgets of a unit
+
+  - name: org.budget.OverrunBudgets
+    source: org.budget.Budget
+    consistency: read_your_writes
+    filter: spent.micro_units > amount.micro_units
+    fields:
+      - {name: budget_id, type: org.shared.BudgetId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: amount, type: org.shared.Money}
+      - {name: spent, type: org.shared.Money}
+      - {name: state, type: org.budget.Budget.State}
+    naming:
+      wire: overrun-budgets
+      display: Budgets spent above their amount

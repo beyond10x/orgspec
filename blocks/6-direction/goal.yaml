@@ -1,0 +1,582 @@
+domain: org.goal
+
+summary: >-
+  What the organization wants to be true, and by when. Goals form a tree: a goal may name a
+  parent goal, the unit it is scoped to and the offering it is about. A key result makes a goal
+  measurable: a measure, a baseline, a target and the current value. A goal without a period is
+  a statement of direction and may stay Committed. Who answers for a goal is a row of
+  `org.responsibility`.
+
+naming:
+  wire: goal
+  display: Goal
+
+types:
+  - name: org.goal.GoalEnd
+    kind: enum
+    variants: [Achieved, Missed, Dropped]
+    naming:
+      summary: >-
+        How a committed goal ended. Achieved and Missed are a judgment at the end of its period;
+        Dropped means the organization no longer wants it.
+
+  - name: org.goal.KeyResultEnd
+    kind: enum
+    variants: [Met, Missed]
+    naming:
+      summary: Whether the key result reached its target when it was closed.
+
+entities:
+  - name: org.goal.Goal
+    naming:
+      summary: >-
+        One thing the organization wants to be true. `scope` is the unit it binds; without one
+        it binds the whole organization. `period` is when it has to be true; without one it is
+        a direction with no end date.
+    identity:
+      name: goal_id
+      type: org.shared.GoalId
+    fields:
+      # UNMAPPED: ProposeGoal refuses an organization and a scope unit that are not on record.
+      # That the unit in `scope` belongs to the organization is not checked: a guard reads one
+      # related row and the input, and the unit's organization is a field of the unit row.
+      # Open question for the owner.
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: parent
+        type: Optional<org.shared.GoalId>
+      - name: scope
+        type: Optional<org.shared.UnitId>
+      - name: statement
+        type: String
+      - name: period
+        type: Optional<org.shared.Period>
+      - name: offering_id
+        type: Optional<org.shared.OfferingId>
+    relations:
+      - name: parent_goal
+        kind: references
+        target: org.goal.Goal
+        cardinality: one
+        via: parent
+      - name: offering
+        kind: references
+        target: org.offering.Offering
+        cardinality: one
+        via: offering_id
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: scope_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: scope
+    lifecycle:
+      initial: Proposed
+      states: [Proposed, Committed, Achieved, Missed, Dropped]
+      terminal: [Achieved, Missed, Dropped]
+      transitions:
+        - name: commit
+          from: [Proposed]
+          to: Committed
+        - name: achieve
+          from: [Committed]
+          to: Achieved
+        - name: miss
+          from: [Committed]
+          to: Missed
+        # UNMAPPED: the lifecycle is Proposed → Committed → Achieved | Missed | Dropped with no
+        # other exit from Proposed, so a goal that is proposed and never committed stays
+        # Proposed. Open question for the owner: add Proposed to `from` here.
+        - name: drop
+          from: [Committed]
+          to: Dropped
+
+  - name: org.goal.KeyResult
+    naming:
+      summary: >-
+        One measure of a goal: where it started, where it has to get, and where it is.
+        `attribution` says how the figures are known: the baseline and target when the key
+        result is added, the current value once one is recorded.
+    identity:
+      name: key_result_id
+      type: org.shared.KeyResultId
+    fields:
+      - name: goal_id
+        type: org.shared.GoalId
+      - name: measure
+        type: String
+      - name: unit
+        type: String
+      - name: baseline
+        type: Decimal
+      - name: target
+        type: Decimal
+      - name: current
+        type: Optional<Decimal>
+      - name: attribution
+        type: org.shared.Attribution
+      - name: measured_at
+        type: Optional<Timestamp>
+        summary: When the current value was recorded.
+    relations:
+      - name: goal
+        kind: references
+        target: org.goal.Goal
+        cardinality: one
+        via: goal_id
+    lifecycle:
+      initial: Open
+      states: [Open, Met, Missed]
+      terminal: [Met, Missed]
+      transitions:
+        - name: meet
+          from: [Open]
+          to: Met
+        - name: miss
+          from: [Open]
+          to: Missed
+
+errors:
+  - name: org.goal.GoalExists
+    summary: A goal of this identifier exists, and nothing was proposed.
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+
+  - name: org.goal.NoSuchGoal
+    summary: No goal of this identifier was proposed.
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+
+  - name: org.goal.UnknownOrganization
+    summary: The goal names an organization that is not on record, and nothing was proposed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.goal.UnknownScopeUnit
+    summary: The goal names a unit that is not on record as its scope, and nothing was proposed.
+    fields:
+      - {name: scope, type: org.shared.UnitId}
+
+  - name: org.goal.UnknownParentGoal
+    summary: The goal names a parent goal nobody proposed, and nothing was proposed.
+    fields:
+      - {name: parent, type: org.shared.GoalId}
+
+  - name: org.goal.UnknownOffering
+    summary: The goal names an offering nobody proposed, and nothing was proposed.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.goal.GoalStateConflict
+    summary: The goal is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.goal.Goal.State}
+
+  - name: org.goal.KeyResultExists
+    summary: A key result of this identifier exists, and nothing was added.
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+
+  - name: org.goal.NoSuchKeyResult
+    summary: No key result of this identifier was added.
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+
+  - name: org.goal.KeyResultClosed
+    summary: The key result is Met or Missed; it takes no new value, and nothing changed.
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+
+  - name: org.goal.KeyResultStateConflict
+    summary: The key result is already closed, and nothing changed.
+    fields:
+      - {name: state, type: org.goal.KeyResult.State}
+
+events:
+  - name: org.goal.GoalProposed
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.GoalId>}
+      - {name: scope, type: Optional<org.shared.UnitId>}
+      - {name: statement, type: String}
+      - {name: period, type: Optional<org.shared.Period>}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.GoalCommitted
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.GoalAchieved
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.GoalMissed
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.GoalDropped
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.KeyResultAdded
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: baseline, type: Decimal}
+      - {name: target, type: Decimal}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.KeyResultMeasured
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: current, type: Decimal}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.KeyResultMet
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: at, type: Timestamp}
+
+  - name: org.goal.KeyResultMissed
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.goal.ProposeGoal
+    naming:
+      wire: propose-goal
+      display: Propose a goal
+      summary: >-
+        The parent is fixed when the goal is proposed and has to exist, so a goal is never its
+        own parent and the goals of an organization never form a cycle.
+    input:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.GoalId>}
+      - {name: scope, type: Optional<org.shared.UnitId>}
+      - {name: statement, type: String}
+      - {name: period, type: Optional<org.shared.Period>}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-proposed
+        existing_instance: true
+        error: org.goal.GoalExists
+        payload:
+          org.goal.GoalExists: {goal_id: input.goal_id}
+      - name: unknown-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.goal.UnknownOrganization
+        payload:
+          org.goal.UnknownOrganization: {organization_id: input.organization_id}
+      - name: unknown-scope
+        when_related: {via: input.scope, exists: false}
+        error: org.goal.UnknownScopeUnit
+        payload:
+          org.goal.UnknownScopeUnit: {scope: input.scope}
+      - name: unknown-parent
+        when_related: {via: input.parent, exists: false}
+        error: org.goal.UnknownParentGoal
+        payload:
+          org.goal.UnknownParentGoal: {parent: input.parent}
+      - name: unknown-offering
+        when_related: {via: input.offering_id, exists: false}
+        error: org.goal.UnknownOffering
+        payload:
+          org.goal.UnknownOffering: {offering_id: input.offering_id}
+      - name: proposed
+        creates: org.goal.Goal
+        instance: goal_id
+        sets:
+          organization_id: input.organization_id
+          parent: input.parent
+          scope: input.scope
+          statement: input.statement
+          period: input.period
+          offering_id: input.offering_id
+        emits: [org.goal.GoalProposed]
+        payload:
+          org.goal.GoalProposed:
+            goal_id: input.goal_id
+            organization_id: input.organization_id
+            parent: input.parent
+            scope: input.scope
+            statement: input.statement
+            period: input.period
+            offering_id: input.offering_id
+            at: input.at
+        summary: The goal is Proposed; nobody is committed to it yet.
+
+  - name: org.goal.CommitGoal
+    naming:
+      wire: commit-goal
+      display: Commit to a goal
+    input:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-goal
+        unknown_instance: true
+        error: org.goal.NoSuchGoal
+        payload:
+          org.goal.NoSuchGoal: {goal_id: input.goal_id}
+      - name: committed
+        moves: org.goal.Goal.commit
+        instance: goal_id
+        emits: [org.goal.GoalCommitted]
+        payload:
+          org.goal.GoalCommitted:
+            goal_id: input.goal_id
+            at: input.at
+        summary: >-
+          The organization wants this. A goal without a period stays Committed for as long as
+          the direction holds.
+      - name: wrong-state
+        wrong_state: true
+        error: org.goal.GoalStateConflict
+        payload:
+          org.goal.GoalStateConflict: {state: {subject: state}}
+
+  - name: org.goal.CloseGoal
+    naming:
+      wire: close-goal
+      display: Close a committed goal as achieved, missed or dropped
+      summary: >-
+        The caller says how the goal ended. The block does not derive it from the key results:
+        whether a goal with one missed key result is achieved is the organization's judgment.
+    input:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: outcome, type: org.goal.GoalEnd}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-goal
+        unknown_instance: true
+        error: org.goal.NoSuchGoal
+        payload:
+          org.goal.NoSuchGoal: {goal_id: input.goal_id}
+      - name: achieved
+        when: outcome == Achieved
+        moves: org.goal.Goal.achieve
+        instance: goal_id
+        emits: [org.goal.GoalAchieved]
+        payload:
+          org.goal.GoalAchieved:
+            goal_id: input.goal_id
+            at: input.at
+      - name: missed
+        when: outcome == Missed
+        moves: org.goal.Goal.miss
+        instance: goal_id
+        emits: [org.goal.GoalMissed]
+        payload:
+          org.goal.GoalMissed:
+            goal_id: input.goal_id
+            at: input.at
+      - name: dropped
+        moves: org.goal.Goal.drop
+        instance: goal_id
+        emits: [org.goal.GoalDropped]
+        payload:
+          org.goal.GoalDropped:
+            goal_id: input.goal_id
+            at: input.at
+        summary: The goal's key results stay as they are; closing them is a command of its own.
+      - name: wrong-state
+        wrong_state: true
+        error: org.goal.GoalStateConflict
+        payload:
+          org.goal.GoalStateConflict: {state: {subject: state}}
+
+  - name: org.goal.AddKeyResult
+    naming:
+      wire: add-key-result
+      display: Add a key result to a goal
+    input:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: baseline, type: Decimal}
+      - {name: target, type: Decimal}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-added
+        existing_instance: true
+        error: org.goal.KeyResultExists
+        payload:
+          org.goal.KeyResultExists: {key_result_id: input.key_result_id}
+      - name: no-such-goal
+        when_related: {via: input.goal_id, exists: false}
+        error: org.goal.NoSuchGoal
+        payload:
+          org.goal.NoSuchGoal: {goal_id: input.goal_id}
+      # UNMAPPED: nothing in the design says whether a goal that is Achieved, Missed or Dropped
+      # still takes a key result. It does here. Open question for the owner.
+      - name: added
+        creates: org.goal.KeyResult
+        instance: key_result_id
+        sets:
+          goal_id: input.goal_id
+          measure: input.measure
+          unit: input.unit
+          baseline: input.baseline
+          target: input.target
+          attribution: input.attribution
+        emits: [org.goal.KeyResultAdded]
+        payload:
+          org.goal.KeyResultAdded:
+            key_result_id: input.key_result_id
+            goal_id: input.goal_id
+            measure: input.measure
+            unit: input.unit
+            baseline: input.baseline
+            target: input.target
+            attribution: input.attribution
+            at: input.at
+        summary: The key result is Open and has no current value.
+
+  - name: org.goal.RecordKeyResultValue
+    naming:
+      wire: record-key-result-value
+      display: Record the current value of a key result
+    input:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: current, type: Decimal}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-key-result
+        unknown_instance: true
+        error: org.goal.NoSuchKeyResult
+        payload:
+          org.goal.NoSuchKeyResult: {key_result_id: input.key_result_id}
+      - name: closed
+        when_subject: {predicate: state != Open}
+        error: org.goal.KeyResultClosed
+        payload:
+          org.goal.KeyResultClosed: {key_result_id: input.key_result_id}
+      - name: recorded
+        updates: org.goal.KeyResult
+        instance: key_result_id
+        sets:
+          current: input.current
+          attribution: input.attribution
+          measured_at: input.at
+        emits: [org.goal.KeyResultMeasured]
+        payload:
+          org.goal.KeyResultMeasured:
+            key_result_id: input.key_result_id
+            current: input.current
+            attribution: input.attribution
+            at: input.at
+        summary: The new value replaces the old one; the event keeps the history.
+
+  - name: org.goal.CloseKeyResult
+    naming:
+      wire: close-key-result
+      display: Close a key result as met or missed
+      summary: >-
+        The caller says whether the target was reached. The block does not compare the current
+        value with the target: a target below the baseline is reached from above, and a key
+        result may be closed on a value nobody recorded here.
+    input:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: outcome, type: org.goal.KeyResultEnd}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-key-result
+        unknown_instance: true
+        error: org.goal.NoSuchKeyResult
+        payload:
+          org.goal.NoSuchKeyResult: {key_result_id: input.key_result_id}
+      - name: met
+        when: outcome == Met
+        moves: org.goal.KeyResult.meet
+        instance: key_result_id
+        emits: [org.goal.KeyResultMet]
+        payload:
+          org.goal.KeyResultMet:
+            key_result_id: input.key_result_id
+            at: input.at
+      - name: missed
+        moves: org.goal.KeyResult.miss
+        instance: key_result_id
+        emits: [org.goal.KeyResultMissed]
+        payload:
+          org.goal.KeyResultMissed:
+            key_result_id: input.key_result_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.goal.KeyResultStateConflict
+        payload:
+          org.goal.KeyResultStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.goal.Goals
+    source: org.goal.Goal
+    consistency: read_your_writes
+    fields:
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.GoalId>}
+      - {name: scope, type: Optional<org.shared.UnitId>}
+      - {name: statement, type: String}
+      - {name: period, type: Optional<org.shared.Period>}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: state, type: org.goal.Goal.State}
+    naming:
+      wire: goals
+      display: Goals
+
+  - name: org.goal.KeyResults
+    source: org.goal.KeyResult
+    consistency: read_your_writes
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: goal_id, type: org.shared.GoalId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: baseline, type: Decimal}
+      - {name: target, type: Decimal}
+      - {name: current, type: Optional<Decimal>}
+      - {name: attribution, type: org.shared.Attribution}
+      - {name: measured_at, type: Optional<Timestamp>}
+      - {name: state, type: org.goal.KeyResult.State}
+    naming:
+      wire: key-results
+      display: Key results
+
+  - name: org.goal.KeyResultsOfGoal
+    source: org.goal.KeyResult
+    consistency: read_your_writes
+    params:
+      - {name: goal_id, type: org.shared.GoalId}
+    filter: goal_id == param.goal_id
+    fields:
+      - {name: key_result_id, type: org.shared.KeyResultId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: baseline, type: Decimal}
+      - {name: target, type: Decimal}
+      - {name: current, type: Optional<Decimal>}
+      - {name: state, type: org.goal.KeyResult.State}
+    naming:
+      wire: key-results-of-goal
+      display: Key results of a goal

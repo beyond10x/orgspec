@@ -1,0 +1,480 @@
+domain: org.position
+
+summary: >-
+  A seat in a unit that plays a role, with a number of seats and the position it reports to. A
+  seat is not a person: a position exists while nobody holds it, and vacancy is not a state.
+  Reporting lines, decision rights and responsibilities attach to positions, so they survive a
+  change of holder. Who holds a position is an assignment, a block above this one.
+
+naming:
+  wire: position
+  display: Position
+
+entities:
+  - name: org.position.Position
+    naming:
+      summary: >-
+        One position: a seat, or several alike, in one unit, playing one role. Established until
+        closed; a closed position stays on record, because past decisions and assignments name it.
+    identity:
+      name: position_id
+      type: org.shared.PositionId
+    fields:
+      - name: unit_id
+        type: org.shared.UnitId
+      - name: role_id
+        type: org.shared.RoleId
+      - name: name
+        type: org.shared.Name
+      # How many holders the position has room for. At least one.
+      - name: seats
+        type: Integer
+      # The position this one reports to. A position at the top of its line names none.
+      - name: reports_to
+        type: Optional<org.shared.PositionId>
+      - name: established_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+    invariants:
+      - seats >= 1
+    relations:
+      - {name: unit, kind: references, target: org.unit.Unit, cardinality: one, via: unit_id}
+      - {name: role, kind: references, target: org.role.Role, cardinality: one, via: role_id}
+      - {name: reports_to_position, kind: references, target: org.position.Position, cardinality: one, via: reports_to}
+    lifecycle:
+      initial: Established
+      states:
+        - {name: Established, summary: "Exists, held or vacant."}
+        - {name: Closed, summary: "Takes no holder and no change; stays on record."}
+      terminal: [Closed]
+      transitions:
+        - {name: close, from: [Established], to: Closed}
+
+errors:
+  - name: org.position.PositionNotFound
+    summary: No position of this identity exists, and nothing changed.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.position.PositionNotEstablished
+    summary: The position is closed, so it takes no change, and nothing changed.
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.position.InvalidSeats
+    summary: A position has at least one seat, and nothing changed.
+
+  - name: org.position.UnitNotFound
+    summary: The unit named does not exist, and nothing changed.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+  - name: org.position.UnitDisbanded
+    summary: The unit named is disbanded, and nothing changed.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+  - name: org.position.RoleNotFound
+    summary: The role named does not exist, and no position was established.
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+
+  - name: org.position.RoleNotActive
+    summary: The role named is a draft or retired, and no position was established.
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: state, type: org.role.Role.State}
+
+  - name: org.position.ReportsToItself
+    summary: A position cannot report to itself, and nothing changed.
+
+  - name: org.position.ReportsToNotFound
+    summary: The position to report to does not exist, and nothing changed.
+
+  - name: org.position.ReportsToClosed
+    summary: The position to report to is closed, and nothing changed.
+
+events:
+  - name: org.position.PositionEstablished
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: name, type: org.shared.Name}
+      - {name: seats, type: Integer}
+      - {name: reports_to, type: Optional<org.shared.PositionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.position.SeatsSet
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: previous_seats, type: Integer}
+      - {name: seats, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.position.ReportsToSet
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: previous_reports_to, type: Optional<org.shared.PositionId>}
+      - {name: reports_to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.position.ReportsToCleared
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: previous_reports_to, type: Optional<org.shared.PositionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.position.PositionMoved
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: previous_unit_id, type: org.shared.UnitId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+
+  - name: org.position.PositionClosed
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # Establish a position in a formed unit, playing an active role, reporting to an established
+  # position or to nobody. It is vacant until an assignment names it. A new position cannot
+  # name itself: it does not exist yet, so `no-such-reports-to` answers.
+  # UNMAPPED: a role and a unit of two different organizations are not refused, here or in
+  # MovePosition. A guard cannot compare a field of one related row with a field of another:
+  # `when_related` reads one related row and the input (ESS-COMMAND-003, `unobservable_fact`).
+  # The rule validates as a row-set guard over the role with an `exists:` join on the unit, and
+  # synthesis then arranges no position at all (ESS-SYNTH-004, "the route runs through
+  # EstablishPosition/established, which no input reaches": 34 more refusals, every command of
+  # this domain). Taken: not refused here, and no rule of `orgspec check` in the design covers
+  # it. Open question for the owner.
+  - name: org.position.EstablishPosition
+    naming:
+      wire: establish-position
+      display: Establish a position
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: name, type: org.shared.Name}
+      - {name: seats, type: Integer}
+      - {name: reports_to, type: Optional<org.shared.PositionId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: invalid-seats
+        when: seats < 1
+        error: org.position.InvalidSeats
+      - name: no-such-unit
+        when_related: {via: input.unit_id, exists: false}
+        error: org.position.UnitNotFound
+        payload:
+          org.position.UnitNotFound: {unit_id: input.unit_id}
+      - name: no-such-role
+        when_related: {via: input.role_id, exists: false}
+        error: org.position.RoleNotFound
+        payload:
+          org.position.RoleNotFound: {role_id: input.role_id}
+      - name: no-such-reports-to
+        when_related: {via: input.reports_to, exists: false}
+        error: org.position.ReportsToNotFound
+      - name: unit-disbanded
+        when_related: {via: input.unit_id, predicate: state == Disbanded}
+        error: org.position.UnitDisbanded
+        payload:
+          org.position.UnitDisbanded: {unit_id: input.unit_id}
+      # UNMAPPED: a role is Draft, Active or Retired, and nothing says in which of these states a
+      # position may be established on it. Taken: Active only; a draft is not yet a role positions
+      # play, a retired one no longer. Open question for the owner.
+      - name: role-not-active
+        when_related: {via: input.role_id, predicate: state != Active}
+        error: org.position.RoleNotActive
+        payload:
+          org.position.RoleNotActive:
+            role_id: input.role_id
+            state: {related: {via: input.role_id, field: state}}
+      - name: reports-to-closed
+        when_related: {via: input.reports_to, predicate: state == Closed}
+        error: org.position.ReportsToClosed
+      - name: established
+        creates: org.position.Position
+        instance: position_id
+        sets:
+          unit_id: input.unit_id
+          role_id: input.role_id
+          name: input.name
+          seats: input.seats
+          reports_to: input.reports_to
+          established_at: input.at
+        emits: [org.position.PositionEstablished]
+        payload:
+          org.position.PositionEstablished:
+            position_id: input.position_id
+            unit_id: input.unit_id
+            role_id: input.role_id
+            name: input.name
+            seats: input.seats
+            reports_to: input.reports_to
+            at: input.at
+        summary: The position exists, vacant, and is Established.
+
+  # UNMAPPED: fewer seats than the position has holders is not refused. Holders are assignments,
+  # a block above this one, and a position does not name them. Taken: accepted here; whether a
+  # position may have more holders than seats is the assignment block's rule. Open question for
+  # the owner.
+  - name: org.position.SetSeats
+    naming:
+      wire: set-seats
+      display: Set the number of seats
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: seats, type: Integer}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: invalid-seats
+        when: seats < 1
+        error: org.position.InvalidSeats
+      - name: no-such-position
+        unknown_instance: true
+        error: org.position.PositionNotFound
+        payload:
+          org.position.PositionNotFound: {position_id: input.position_id}
+      - name: set
+        when_subject_state: Established
+        updates: org.position.Position
+        instance: position_id
+        sets:
+          seats: input.seats
+        emits: [org.position.SeatsSet]
+        payload:
+          org.position.SeatsSet:
+            position_id: input.position_id
+            previous_seats: {subject: seats}
+            seats: input.seats
+            at: input.at
+        summary: The position has the number of seats named.
+      - name: closed
+        error: org.position.PositionNotEstablished
+        payload:
+          org.position.PositionNotEstablished: {position_id: input.position_id}
+        summary: A closed position keeps the seats it had.
+
+  # Name the position this one reports to. ClearReportsTo puts it at the top of its line again.
+  # UNMAPPED: reporting lines that close a cycle (A reports to B, B reports to A) are not refused
+  # here. ESS has no guard over a chain of rows (design, "What ESS lacks here"); only the
+  # position that names itself is refused. The chain is checked by `orgspec check`
+  # (`reporting_cycle`).
+  - name: org.position.SetReportsTo
+    naming:
+      wire: set-reports-to
+      display: Set the position reported to
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: reports_to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # ESS limit: this refusal validates and gets no synthesized scenario (ESS-SYNTH-003, "reads
+      # a related row of Position itself, which is arranged one level deep and only where its
+      # lifecycle starts"). A hand-written scenario covers it.
+      - name: reports-to-itself
+        when: input.position_id == input.reports_to
+        error: org.position.ReportsToItself
+      - name: no-such-position
+        unknown_instance: true
+        error: org.position.PositionNotFound
+        payload:
+          org.position.PositionNotFound: {position_id: input.position_id}
+      - name: closed
+        when_subject: {predicate: state == Closed}
+        error: org.position.PositionNotEstablished
+        payload:
+          org.position.PositionNotEstablished: {position_id: input.position_id}
+      - name: no-such-reports-to
+        when_related: {via: input.reports_to, exists: false}
+        error: org.position.ReportsToNotFound
+      - name: reports-to-closed
+        when_related: {via: input.reports_to, predicate: state == Closed}
+        error: org.position.ReportsToClosed
+      - name: set
+        updates: org.position.Position
+        instance: position_id
+        sets:
+          reports_to: input.reports_to
+        emits: [org.position.ReportsToSet]
+        payload:
+          org.position.ReportsToSet:
+            position_id: input.position_id
+            previous_reports_to: {subject: reports_to}
+            reports_to: input.reports_to
+            at: input.at
+        summary: The position reports to the position named.
+
+  - name: org.position.ClearReportsTo
+    naming:
+      wire: clear-reports-to
+      display: Clear the position reported to
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-position
+        unknown_instance: true
+        error: org.position.PositionNotFound
+        payload:
+          org.position.PositionNotFound: {position_id: input.position_id}
+      - name: cleared
+        when_subject_state: Established
+        updates: org.position.Position
+        instance: position_id
+        sets:
+          reports_to: {cleared: true}
+        emits: [org.position.ReportsToCleared]
+        payload:
+          org.position.ReportsToCleared:
+            position_id: input.position_id
+            previous_reports_to: {subject: reports_to}
+            at: input.at
+        summary: The position reports to nobody.
+      - name: closed
+        error: org.position.PositionNotEstablished
+        payload:
+          org.position.PositionNotEstablished: {position_id: input.position_id}
+        summary: A closed position keeps the reporting line it had.
+
+  # Move a position to another formed unit. It keeps its role, its seats, its reporting line and,
+  # in the blocks above, its holders: they name the position, not the unit.
+  - name: org.position.MovePosition
+    naming:
+      wire: move-position
+      display: Move a position to another unit
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # ESS limit: `unit-disbanded` validates and gets no synthesized scenario (ESS-SYNTH-001):
+      # the way to a disbanded unit runs through DisbandUnit, whose row-set guard synthesis does
+      # not decide beside a second unit. A hand-written scenario covers it.
+      - name: no-such-position
+        unknown_instance: true
+        error: org.position.PositionNotFound
+        payload:
+          org.position.PositionNotFound: {position_id: input.position_id}
+      - name: closed
+        when_subject: {predicate: state == Closed}
+        error: org.position.PositionNotEstablished
+        payload:
+          org.position.PositionNotEstablished: {position_id: input.position_id}
+      - name: no-such-unit
+        when_related: {via: input.unit_id, exists: false}
+        error: org.position.UnitNotFound
+        payload:
+          org.position.UnitNotFound: {unit_id: input.unit_id}
+      - name: unit-disbanded
+        when_related: {via: input.unit_id, predicate: state == Disbanded}
+        error: org.position.UnitDisbanded
+        payload:
+          org.position.UnitDisbanded: {unit_id: input.unit_id}
+      - name: moved
+        updates: org.position.Position
+        instance: position_id
+        sets:
+          unit_id: input.unit_id
+        emits: [org.position.PositionMoved]
+        payload:
+          org.position.PositionMoved:
+            position_id: input.position_id
+            previous_unit_id: {subject: unit_id}
+            unit_id: input.unit_id
+            at: input.at
+        summary: The position sits in the unit named.
+
+  # UNMAPPED: the design does not say whether a position that other positions report to, or that
+  # still has holders, may be closed. Holders are a block above this one. Taken: accepted here;
+  # the positions that reported to it keep the reference, and no new line may name a closed
+  # position. Open question for the owner.
+  - name: org.position.ClosePosition
+    naming:
+      wire: close-position
+      display: Close a position
+    input:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-position
+        unknown_instance: true
+        error: org.position.PositionNotFound
+        payload:
+          org.position.PositionNotFound: {position_id: input.position_id}
+      - name: closed
+        moves: org.position.Position.close
+        instance: position_id
+        sets:
+          closed_at: input.at
+        emits: [org.position.PositionClosed]
+        payload:
+          org.position.PositionClosed:
+            position_id: input.position_id
+            at: input.at
+        summary: The position takes no holder and no change, and stays on record.
+      - name: already-closed
+        wrong_state: true
+        error: org.position.PositionNotEstablished
+        payload:
+          org.position.PositionNotEstablished: {position_id: input.position_id}
+        summary: The position had already been closed.
+
+views:
+  - name: org.position.Positions
+    source: org.position.Position
+    consistency: read_your_writes
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: name, type: org.shared.Name}
+      - {name: seats, type: Integer}
+      - {name: reports_to, type: Optional<org.shared.PositionId>}
+      - {name: established_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.position.Position.State}
+    naming:
+      wire: positions
+      display: Positions
+
+  # The established positions of one unit.
+  - name: org.position.PositionsOfUnit
+    source: org.position.Position
+    consistency: read_your_writes
+    params:
+      - {name: unit_id, type: org.shared.UnitId}
+    filter:
+      all:
+        - unit_id == param.unit_id
+        - state == Established
+    fields:
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: name, type: org.shared.Name}
+      - {name: seats, type: Integer}
+      - {name: reports_to, type: Optional<org.shared.PositionId>}
+      - {name: state, type: org.position.Position.State}
+    naming:
+      wire: positions-of-unit
+      display: Positions of a unit
+
+  # Span of control: how many established positions report to each position. The row without
+  # `reports_to` counts the positions at the top of a line.
+  - name: org.position.SpanOfControl
+    source: org.position.Position
+    consistency: read_your_writes
+    filter: state == Established
+    group_by: [reports_to]
+    fields:
+      - {name: reports_to, type: Optional<org.shared.PositionId>}
+      - {name: direct_reports, type: Integer, aggregate: {count: {}}}
+    naming:
+      wire: span-of-control
+      display: Span of control

@@ -1,0 +1,68 @@
+format: orgspec-organization/1
+organization: clinic
+type: regulated
+origin: invented
+summary: A walk-in clinic of fourteen people under a health authority.
+
+parts:
+  clinic:           { block: organization, form: company, purpose: "Treat people who walk in, the same day." }
+  board:            { block: unit, nature: governing, in: clinic }
+  care:             { block: unit, nature: line, basis: function, in: clinic }
+  office:           { block: unit, nature: line, basis: function, in: clinic }
+  director_role:    { block: role, purpose: "Runs the clinic and answers to the board." }
+  doctor_role:      { block: role, purpose: "Examines, decides the treatment, keeps the record." }
+  nurse_role:       { block: role, purpose: "Treats and watches the patient." }
+  clerk_role:       { block: role, purpose: "Admits patients and buys what the clinic needs." }
+  officer_role:     { block: role, kind: compliance_officer, purpose: "Watches that the clinic meets its duties." }
+  director:         { block: position, in: board, role: director_role }
+  doctor:           { block: position, in: care, role: doctor_role, seats: 4 }
+  nurse:            { block: position, in: care, role: nurse_role, seats: 6 }
+  clerk:            { block: position, in: office, role: clerk_role, seats: 2 }
+  officer:          { block: position, in: office, role: officer_role }
+  consultation:     { block: offering, audience: external }
+  patients:         { block: relationship, tie: customer }
+  health_authority: { block: relationship, tie: regulator }
+  records:          { block: asset, kind: register, retention: 520w, criticality: critical }
+  medication:       { block: decision_class, kind: controlled }
+  purchasing:       { block: decision_class, kind: controlled }
+  record_keeping:   { block: obligation, source: law, about: records }
+  hygiene:          { block: obligation, source: standard, about: care }
+  record_loss:      { block: risk, about: records, likelihood: low, impact: critical, treatment: reduce }
+  hygiene_policy:   { block: policy, category: standard, scope: care }
+  visit:
+    block: process
+    steps:
+      - { name: admit,   role: clerk_role,  activity: do }
+      - { name: examine, role: doctor_role, activity: do }
+      - { name: treat,   role: nurse_role,  activity: do }
+      - { name: record,  role: doctor_role, activity: do }
+  round:            { block: forum, convenes: care, every: 1d }
+
+links:
+  - { from: director, to: board,    carries: reports_to }
+  - { from: officer,  to: board,    carries: reports_to }
+  - { from: doctor,   to: director, carries: reports_to }
+  - { from: nurse,    to: director, carries: reports_to }
+  - { from: clerk,    to: director, carries: reports_to }
+  - { from: director, to: consultation,   carries: accountable }
+  - { from: director, to: records,        carries: accountable }
+  - { from: director, to: hygiene_policy, carries: accountable }
+  - { from: director, to: visit,          carries: accountable }
+  - { from: officer,  to: record_keeping, carries: accountable }
+  - { from: officer,  to: hygiene,        carries: accountable }
+  - { from: officer,  to: record_loss,    carries: accountable }
+  - { from: doctor,   to: consultation,   carries: responsible }
+  - { from: nurse,    to: consultation,   carries: responsible }
+  - { from: patients, to: consultation,   carries: demand }
+  - { from: officer,  to: health_authority, carries: serves }
+  - { from: nurse,    to: medication, carries: proposes }
+  - { from: doctor,   to: medication, carries: approves }
+  - { from: doctor,   to: medication, carries: decides, mode: sole }
+  - { from: clerk,    to: purchasing, carries: proposes }
+  - { from: director, to: purchasing, carries: approves }
+  - { from: director, to: purchasing, carries: decides, mode: sole }
+  - { from: nurse,    to: doctor,   carries: escalates, after: 15m }
+  - { from: clerk,    to: director, carries: escalates, after: 1d }
+  - { from: round,    to: medication, carries: settles }
+
+border: [clerk]

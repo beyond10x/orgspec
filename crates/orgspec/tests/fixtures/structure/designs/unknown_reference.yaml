@@ -1,0 +1,15 @@
+format: orgspec-organization/1
+organization: bakery
+origin: invented
+parts:
+  bakery:  { block: organization }
+  board:   { block: unit, nature: governing, in: bakery }
+  kitchen: { block: unit, nature: line, in: bakery }
+  baker:   { block: role }
+  head:    { block: position, in: kitchen, role: baker }
+  plan:    { block: goal, parent: dream }
+  baking:  { block: process, steps: [ { name: knead, role: kneader, activity: do } ] }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: head, to: plan, carries: accountable, via: kitchen }
+  - { from: head, to: baking, carries: accountable, scope: baker, class: plan }

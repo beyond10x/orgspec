@@ -1,0 +1,22 @@
+format: orgspec-organization/1
+organization: library
+type: local
+origin: invented
+parts:
+  library:   { block: organization }
+  friends:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  stacks:    { block: unit, nature: line, in: library }
+  archive:   { block: unit, nature: line, in: stacks }
+  circle:    { block: unit, nature: community, in: friends }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  stacker:   { block: position, in: stacks, role: librarian }
+  keeper:    { block: position, in: archive, role: librarian }
+  helper:    { block: position, in: circle, role: librarian }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: stacker, to: head, carries: stands_in }
+  - { from: keeper, to: head, carries: borrows_from }
+  - { from: helper, to: head, carries: refers_to }

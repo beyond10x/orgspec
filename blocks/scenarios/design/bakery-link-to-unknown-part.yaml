@@ -1,0 +1,55 @@
+# Broken variant: the bakery with the `bread` offering left out of the parts. The link
+# `head-baker accountable bread` names a part that does not exist (`unknown_link_parts`).
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-link-to-unknown-part
+summary: A link to a part the revision does not have is refused (UnknownLinkParts), and no link is added.
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000005
+      revision_id: {$instance: rev}
+      name: head-baker
+      block: Position
+      held_by: Human
+      dimensions: []
+      at: 2026-11-27T09:00:02Z
+    outcome: added
+
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: accountable
+      at: 2026-11-27T09:00:03Z
+    outcome: unknown-to-part
+    error:
+      name: org.design.UnknownLinkParts
+    no_events: [org.design.LinkAdded]
+
+assert:
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    counts:
+      at_most: 0

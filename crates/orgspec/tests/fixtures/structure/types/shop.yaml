@@ -1,0 +1,19 @@
+format: orgspec-type/1
+type: shop
+origin: invented
+summary: A small shop with a counter and a workshop. The structural fixtures use its kinds.
+kinds:
+  counter:
+    block: unit
+    summary: The unit that meets the customers.
+    nature: line
+    basis: market
+  oven:
+    block: asset
+    summary: An oven that must be serviced.
+    class: physical
+    attributes:
+      serviced_every: { type: duration, required: true }
+      fuel: { type: enum, values: [gas, electric] }
+links:
+  supplies: { summary: "One part supplies another with goods." }

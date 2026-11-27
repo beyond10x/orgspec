@@ -1,0 +1,84 @@
+format: orgspec-type/1
+type: open-source-project
+origin: invented
+extends: [base]
+summary: A project whose work is public and whose contributors mostly give their time freely.
+
+vocabulary:
+  organization: project
+  relationship: user
+
+kinds:
+  maintainer:
+    block: role
+    summary: May accept a contribution and publish a version.
+  contributor:
+    block: role
+    summary: Proposes changes. Holds no right to accept them.
+  repository:
+    block: asset
+    class: digital
+    summary: The public source and its history.
+  code_of_conduct:
+    block: policy
+    category: rule
+    summary: How people in the project treat each other, and what happens otherwise.
+  publication:
+    block: decision_class
+    summary: Whether a version is published.
+
+rules:
+  - id: maintainer_seats_at_least_two
+    summary: A maintainer position has at least two seats, so one person leaving stops nothing.
+    rule: value
+    each: { block: position, role_kind: maintainer }
+    field: seats
+    min: 2
+
+  - id: repository_has_maintainer
+    summary: Every repository has a maintainer position responsible for it.
+    rule: links
+    each: { block: asset, kind: repository }
+    carries: responsible
+    direction: in
+    other: { block: position, role_kind: maintainer }
+    min: 1
+
+  - id: way_in_from_outside
+    summary: At least one channel is open to people outside the project.
+    rule: parts
+    match: { block: channel, audience: external }
+    min: 1
+
+  - id: conduct_policy_exists
+    summary: The project has a code of conduct.
+    rule: parts
+    match: { block: policy, kind: code_of_conduct }
+    min: 1
+
+  - id: publication_class_exists
+    summary: The design says who decides to publish a version.
+    rule: parts
+    match: { block: decision_class, kind: publication }
+    min: 1
+
+  - id: contributor_decides_nothing
+    summary: A contributor position decides no decision class.
+    rule: forbid
+    carries: decides
+    from: { block: position, role_kind: contributor }
+    to: { block: decision_class }
+
+kpis:
+  - id: first_answer_days
+    block: channel
+    measures: quality
+    unit: days
+    summary: Days from a message of a person outside the project to the first answer.
+    direction: lower
+  - id: contributions_accepted_share
+    block: position
+    measures: quality
+    unit: share
+    summary: Share of the work items a contributor position handed off that a maintainer position accepted.
+    direction: higher

@@ -1,0 +1,23 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A kind, a selector, a KPI and an extension that name no block.
+kinds:
+  hut: { block: building }
+rules:
+  - id: huts_are_few
+    summary: At most two huts.
+    rule: parts
+    match: { block: building }
+    max: 2
+kpis:
+  - id: huts_open
+    summary: Huts open per day.
+    block: building
+    measures: quality
+    unit: huts
+    direction: higher
+extensions:
+  - domain: museum.ticket
+    extends: turnstile
+    path: ess/8-work/ticket.yaml

@@ -1,0 +1,474 @@
+domain: org.agreement
+
+summary: >-
+  What one unit provides to another unit or to a relationship, with terms: a measure and a
+  target over a window. An agreement is the contract at a seam: it says what the receiving side
+  may expect, and a breach of a term is recorded as a fact. Who answers for an agreement is a row
+  of the responsibility block, not a field here.
+
+naming:
+  wire: agreement
+  display: Agreement
+
+types:
+  - name: org.agreement.Consumer
+    kind: union
+    tag: type
+    variants:
+      Unit: org.shared.UnitId
+      Relationship: org.shared.RelationshipId
+    naming:
+      summary: >-
+        Who an agreement is provided to: a unit of the organization, or a relationship with a
+        party outside it. Exactly one, by construction.
+
+entities:
+  - name: org.agreement.Agreement
+    naming:
+      summary: >-
+        What a unit provides to a consumer, optionally for one offering. Proposed, then in force,
+        then ended. An ended agreement stays on record.
+    identity:
+      name: agreement_id
+      type: org.shared.AgreementId
+    fields:
+      - name: provider
+        type: org.shared.UnitId
+        summary: The unit that provides.
+      - name: consumer
+        type: org.agreement.Consumer
+      - name: offering_id
+        type: Optional<org.shared.OfferingId>
+        summary: The offering the agreement is about, when it is about one.
+      - name: summary
+        type: String
+        summary: What is provided, in one or two sentences.
+      - name: proposed_at
+        type: Timestamp
+      - name: in_force_at
+        type: Optional<Timestamp>
+      - name: ended_at
+        type: Optional<Timestamp>
+    relations:
+      - name: terms
+        kind: owns
+        target: org.agreement.Term
+        cardinality: many
+        via: agreement_id
+      - name: provider_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: provider
+      - name: offering
+        kind: references
+        target: org.offering.Offering
+        cardinality: one
+        via: offering_id
+    lifecycle:
+      initial: Proposed
+      states:
+        - {name: Proposed, summary: "Takes terms; binds nobody yet."}
+        - {name: InForce, summary: "Binds the provider; a breach of a term is recorded."}
+        - {name: Ended, summary: "Stays on record; takes no term and no breach."}
+      terminal: [Ended]
+      # UNMAPPED: the lifecycle is Proposed → InForce → Ended, with no way out of Proposed for a
+      # proposal nobody takes up. Taken: none; such an agreement stays Proposed. Open question
+      # for the owner: a `withdraw` from Proposed to Ended, or a state of its own.
+      transitions:
+        - {name: put_in_force, from: [Proposed], to: InForce}
+        - {name: end, from: [InForce], to: Ended}
+
+  - name: org.agreement.Term
+    naming:
+      summary: >-
+        One measurable promise of an agreement: a measure, its unit, the target and the window
+        the target is measured over ("answered within", "hours", 4, over 30 days).
+    identity:
+      name: term_id
+      type: org.shared.TermId
+    fields:
+      - name: agreement_id
+        type: org.shared.AgreementId
+      - name: measure
+        type: String
+      - name: unit
+        type: String
+        summary: The unit of the measure and of the target, as text.
+      - name: target
+        type: Decimal
+      - name: window
+        type: Duration
+        summary: The span the target is measured over.
+      - name: set_at
+        type: Timestamp
+      - name: dropped_at
+        type: Optional<Timestamp>
+    lifecycle:
+      initial: Set
+      states:
+        - {name: Set, summary: "Part of its agreement."}
+        - {name: Dropped, summary: "No longer part of its agreement; stays on record."}
+      terminal: [Dropped]
+      transitions:
+        - {name: drop, from: [Set], to: Dropped}
+
+errors:
+  - name: org.agreement.AgreementNotFound
+    summary: No agreement of this identity exists, and nothing changed.
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+
+  - name: org.agreement.ProviderNotFound
+    summary: No unit of this identity exists to provide, and no agreement was proposed.
+    fields:
+      - {name: provider, type: org.shared.UnitId}
+
+  - name: org.agreement.OfferingNotFound
+    summary: No offering of this identity exists, and no agreement was proposed.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.agreement.AgreementStateConflict
+    summary: The agreement is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: state, type: org.agreement.Agreement.State}
+
+  - name: org.agreement.AgreementHasEnded
+    summary: An ended agreement takes no new term, and nothing was set.
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+
+  - name: org.agreement.AgreementNotInForce
+    summary: >-
+      The agreement of the term is proposed or ended, so no term of it can be breached, and
+      nothing was recorded.
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+
+  - name: org.agreement.TermNotFound
+    summary: No term of this identity exists, and nothing changed.
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+
+  - name: org.agreement.TermNotSet
+    summary: The term was dropped, so it is neither dropped again nor breached, and nothing changed.
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+
+events:
+  - name: org.agreement.AgreementProposed
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: provider, type: org.shared.UnitId}
+      - {name: consumer, type: org.agreement.Consumer}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.agreement.AgreementPutInForce
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: at, type: Timestamp}
+
+  - name: org.agreement.AgreementEnded
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: at, type: Timestamp}
+
+  - name: org.agreement.TermSet
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: target, type: Decimal}
+      - {name: window, type: Duration}
+      - {name: at, type: Timestamp}
+
+  - name: org.agreement.TermDropped
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: at, type: Timestamp}
+
+  - name: org.agreement.TermBreached
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: observed, type: Decimal}
+      - {name: target, type: Decimal}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: a unit that agrees with itself (consumer Unit equal to provider) should be refused,
+  # as a position that reports to itself is. ESS reads no payload of a union variant in a guard:
+  # `consumer.Unit == provider` is refused as `unobservable_fact` (ESS-COMMAND-003), and
+  # `consumer == provider` as `type_mismatch` (ESS-COMMAND-002). Taken instead: not refused here;
+  # `orgspec check` can hold it as a structural rule of a design.
+  - name: org.agreement.ProposeAgreement
+    naming:
+      wire: propose-agreement
+      display: Propose an agreement
+    input:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: provider, type: org.shared.UnitId}
+      - {name: consumer, type: org.agreement.Consumer}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-provider
+        when_related: {via: input.provider, exists: false}
+        error: org.agreement.ProviderNotFound
+        payload:
+          org.agreement.ProviderNotFound: {provider: input.provider}
+      - name: no-such-offering
+        when_related: {via: input.offering_id, exists: false}
+        error: org.agreement.OfferingNotFound
+        payload:
+          org.agreement.OfferingNotFound: {offering_id: input.offering_id}
+      - name: proposed
+        creates: org.agreement.Agreement
+        instance: agreement_id
+        sets:
+          provider: input.provider
+          consumer: input.consumer
+          offering_id: input.offering_id
+          summary: input.summary
+          proposed_at: input.at
+        emits: [org.agreement.AgreementProposed]
+        payload:
+          org.agreement.AgreementProposed:
+            agreement_id: input.agreement_id
+            provider: input.provider
+            consumer: input.consumer
+            offering_id: input.offering_id
+            summary: input.summary
+            at: input.at
+        summary: The agreement is Proposed and has no term.
+
+  - name: org.agreement.PutAgreementInForce
+    naming:
+      wire: put-agreement-in-force
+      display: Put an agreement in force
+    input:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-agreement
+        unknown_instance: true
+        error: org.agreement.AgreementNotFound
+        payload:
+          org.agreement.AgreementNotFound: {agreement_id: input.agreement_id}
+      - name: put-in-force
+        moves: org.agreement.Agreement.put_in_force
+        instance: agreement_id
+        sets:
+          in_force_at: input.at
+        emits: [org.agreement.AgreementPutInForce]
+        payload:
+          org.agreement.AgreementPutInForce:
+            agreement_id: input.agreement_id
+            at: input.at
+        summary: The provider is bound by the terms from now on.
+      - name: wrong-state
+        wrong_state: true
+        error: org.agreement.AgreementStateConflict
+        payload:
+          org.agreement.AgreementStateConflict:
+            agreement_id: input.agreement_id
+            state: {subject: state}
+        summary: Only a Proposed agreement is put in force.
+
+  - name: org.agreement.EndAgreement
+    naming:
+      wire: end-agreement
+      display: End an agreement
+    input:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-agreement
+        unknown_instance: true
+        error: org.agreement.AgreementNotFound
+        payload:
+          org.agreement.AgreementNotFound: {agreement_id: input.agreement_id}
+      - name: ended
+        moves: org.agreement.Agreement.end
+        instance: agreement_id
+        sets:
+          ended_at: input.at
+        emits: [org.agreement.AgreementEnded]
+        payload:
+          org.agreement.AgreementEnded:
+            agreement_id: input.agreement_id
+            at: input.at
+        summary: The agreement binds nobody any more; its terms stay on record.
+      - name: wrong-state
+        wrong_state: true
+        error: org.agreement.AgreementStateConflict
+        payload:
+          org.agreement.AgreementStateConflict:
+            agreement_id: input.agreement_id
+            state: {subject: state}
+        summary: Only an agreement in force is ended.
+
+  - name: org.agreement.SetTerm
+    naming:
+      wire: set-term
+      display: Set a term of an agreement
+    input:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: target, type: Decimal}
+      - {name: window, type: Duration}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-agreement
+        when_related: {via: input.agreement_id, exists: false}
+        error: org.agreement.AgreementNotFound
+        payload:
+          org.agreement.AgreementNotFound: {agreement_id: input.agreement_id}
+      - name: agreement-ended
+        when_related: {via: input.agreement_id, predicate: state == Ended}
+        error: org.agreement.AgreementHasEnded
+        payload:
+          org.agreement.AgreementHasEnded: {agreement_id: input.agreement_id}
+      - name: set
+        creates: org.agreement.Term
+        instance: term_id
+        sets:
+          agreement_id: input.agreement_id
+          measure: input.measure
+          unit: input.unit
+          target: input.target
+          window: input.window
+          set_at: input.at
+        emits: [org.agreement.TermSet]
+        payload:
+          org.agreement.TermSet:
+            term_id: input.term_id
+            agreement_id: input.agreement_id
+            measure: input.measure
+            unit: input.unit
+            target: input.target
+            window: input.window
+            at: input.at
+        summary: The term is part of the agreement, proposed or in force.
+
+  - name: org.agreement.DropTerm
+    naming:
+      wire: drop-term
+      display: Drop a term of an agreement
+    input:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-term
+        unknown_instance: true
+        error: org.agreement.TermNotFound
+        payload:
+          org.agreement.TermNotFound: {term_id: input.term_id}
+      - name: dropped
+        moves: org.agreement.Term.drop
+        instance: term_id
+        sets:
+          dropped_at: input.at
+        emits: [org.agreement.TermDropped]
+        payload:
+          org.agreement.TermDropped:
+            term_id: input.term_id
+            agreement_id: {subject: agreement_id}
+            at: input.at
+        summary: The term is no longer part of its agreement and stays on record.
+      - name: already-dropped
+        wrong_state: true
+        error: org.agreement.TermNotSet
+        payload:
+          org.agreement.TermNotSet: {term_id: input.term_id}
+
+  # UNMAPPED: a term has a measure and a target and no direction (at least, at most), so this
+  # block cannot tell whether `observed` misses `target`. Taken: the breach is recorded as the
+  # caller states it, and the event carries both numbers. Open question for the owner: a
+  # direction on Term, which would let a guard refuse a breach that is none.
+  # The outcome `no-such-term` gets no scenario from synthesis (ESS-SYNTH-008), because the
+  # command also guards on the related agreement; it needs an authored scenario.
+  - name: org.agreement.RecordBreach
+    naming:
+      wire: record-breach
+      display: Record a breach of a term
+      summary: >-
+        Records that a term was missed: the value observed over the term's window against its
+        target. The record is the event; the term itself does not change.
+    input:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: observed, type: Decimal}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-term
+        unknown_instance: true
+        error: org.agreement.TermNotFound
+        payload:
+          org.agreement.TermNotFound: {term_id: input.term_id}
+      - name: term-dropped
+        when_subject: {predicate: state == Dropped}
+        error: org.agreement.TermNotSet
+        payload:
+          org.agreement.TermNotSet: {term_id: input.term_id}
+      - name: agreement-not-in-force
+        when_related: {via: agreement_id, predicate: state != InForce}
+        error: org.agreement.AgreementNotInForce
+        payload:
+          org.agreement.AgreementNotInForce: {agreement_id: {subject: agreement_id}}
+        summary: A term binds only while its agreement is in force; nothing was recorded.
+      - name: recorded
+        updates: org.agreement.Term
+        instance: term_id
+        emits: [org.agreement.TermBreached]
+        payload:
+          org.agreement.TermBreached:
+            term_id: input.term_id
+            agreement_id: {subject: agreement_id}
+            observed: input.observed
+            target: {subject: target}
+            at: input.at
+        summary: The breach is on record; the term stays Set.
+
+views:
+  - name: org.agreement.Agreements
+    source: org.agreement.Agreement
+    consistency: read_your_writes
+    fields:
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: provider, type: org.shared.UnitId}
+      - {name: consumer, type: org.agreement.Consumer}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: summary, type: String}
+      - {name: proposed_at, type: Timestamp}
+      - {name: in_force_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.agreement.Agreement.State}
+    naming:
+      wire: agreements
+      display: Agreements
+
+  - name: org.agreement.Terms
+    source: org.agreement.Term
+    consistency: read_your_writes
+    fields:
+      - {name: term_id, type: org.shared.TermId}
+      - {name: agreement_id, type: org.shared.AgreementId}
+      - {name: measure, type: String}
+      - {name: unit, type: String}
+      - {name: target, type: Decimal}
+      - {name: window, type: Duration}
+      - {name: set_at, type: Timestamp}
+      - {name: dropped_at, type: Optional<Timestamp>}
+      - {name: state, type: org.agreement.Term.State}
+    naming:
+      wire: terms
+      display: Terms

@@ -1,0 +1,24 @@
+format: orgspec-organization/1
+organization: broken-border_without_part
+type: base
+origin: invented
+summary: "Valid except that the border names a part that does not exist."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 3 }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: owners, to: spend,  carries: decides, mode: consent }
+
+border: [lead, counter]

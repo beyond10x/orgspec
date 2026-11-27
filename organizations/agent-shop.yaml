@@ -1,0 +1,79 @@
+format: orgspec-organization/1
+organization: agent-shop
+type: [agent-operated, product-company]
+origin: invented
+summary: Four people and about nine agents that build and support one planner app. Two types at once.
+
+parts:
+  shop:              { block: organization, form: company, purpose: "Sell and support one planner app with as few people as it takes." }
+  owners:            { block: unit, nature: governing, in: shop }
+  planner_squad:     { block: unit, kind: squad, in: shop }
+  support:           { block: unit, nature: line, basis: function, in: shop }
+  product_lead_role: { block: role, kind: product_lead }
+  steward_role:      { block: role, kind: steward }
+  builder_role:      { block: role, purpose: "Writes, tests and releases changes." }
+  answerer_role:     { block: role, purpose: "Answers customers." }
+  product_lead:      { block: position, in: planner_squad, role: product_lead_role }
+  build_steward:     { block: position, in: planner_squad, role: steward_role }
+  builder:
+    block: position
+    in: planner_squad
+    role: builder_role
+    held_by: agent
+    seats: { value: 6, vary: { min: 2, max: 12 } }
+  support_steward:   { block: position, in: support, role: steward_role }
+  answerer:
+    block: position
+    in: support
+    role: answerer_role
+    held_by: mixed
+    seats: 4
+    agent_share: { value: 0.75, vary: [0.25, 0.5, 0.75] }
+  planner:           { block: offering, kind: product, stage: live }
+  help:              { block: offering, audience: external }
+  customers:         { block: relationship, tie: customer }
+  ship:              { block: decision_class, kind: release }
+  refund:            { block: decision_class }
+  delete_account:    { block: decision_class, kind: irreversible }
+  build:
+    block: process
+    kind: runbook
+    reviewed_every: 4w
+    steps:
+      - { name: plan,   role: product_lead_role, activity: decide }
+      - { name: change, role: builder_role,      activity: do }
+      - { name: review, role: steward_role,      activity: review }
+  answer:
+    block: process
+    kind: runbook
+    reviewed_every: 2w
+    steps:
+      - { name: answer, role: answerer_role, activity: do }
+      - { name: review, role: steward_role,  activity: review }
+
+links:
+  - { from: product_lead,    to: owners,          carries: reports_to }
+  - { from: support_steward, to: owners,          carries: reports_to }
+  - { from: build_steward,   to: product_lead,    carries: reports_to }
+  - { from: builder,         to: build_steward,   carries: reports_to }
+  - { from: answerer,        to: support_steward, carries: reports_to }
+  - { from: answerer,        to: support_steward, carries: answers_to }
+  - { from: builder,         to: build_steward,   carries: escalates, after: 30m }
+  - { from: build_steward,   to: product_lead,    carries: escalates, after: 4h }
+  - { from: answerer,        to: support_steward, carries: escalates, after: 30m }
+  - { from: product_lead,    to: ship,            carries: decides, mode: sole }
+  - { from: support_steward, to: refund,          carries: decides, mode: sole }
+  - { from: owners,          to: delete_account,  carries: decides, mode: consent }
+  - { from: support_steward, to: answerer,        carries: delegates, class: refund, limit: { value: 50, vary: [20, 50, 100] } }
+  - { from: planner_squad,   to: planner,         carries: serves }
+  - { from: support,         to: help,            carries: serves }
+  - { from: customers,       to: planner,         carries: demand }
+  - { from: customers,       to: help,            carries: demand }
+  - { from: product_lead,    to: planner,         carries: accountable }
+  - { from: support_steward, to: help,            carries: accountable }
+  - { from: build_steward,   to: build,           carries: accountable }
+  - { from: support_steward, to: answer,          carries: accountable }
+  - { from: builder,         to: planner,         carries: responsible }
+  - { from: answerer,        to: help,            carries: responsible }
+
+border: [answerer]

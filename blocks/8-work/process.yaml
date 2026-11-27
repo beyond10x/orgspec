@@ -1,0 +1,532 @@
+domain: org.process
+
+summary: >-
+  The way a kind of work is done: steps in order, each performed by a role. A step is doing,
+  deciding, reviewing or waiting. A process names roles, never positions or people, so it
+  survives a change of structure. Who answers for a process is a row of the responsibility
+  block, not a field here.
+
+naming:
+  wire: process
+  display: Process
+
+types:
+  - name: org.process.Activity
+    kind: enum
+    variants: [Do, Decide, Review, Wait]
+    naming:
+      summary: >-
+        What a step is. Do produces something. Decide settles a question of one decision class.
+        Review checks what an earlier step produced. Wait lets time or an outside party pass.
+
+entities:
+  - name: org.process.Process
+    naming:
+      summary: >-
+        One way of doing a kind of work in an organization, optionally the way one offering is
+        delivered. It is drafted, put in force and retired. Its revision counts the changes of
+        its steps since it was drafted.
+    identity:
+      name: process_id
+      type: org.shared.ProcessId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: offering_id
+        type: Optional<org.shared.OfferingId>
+        summary: The offering this process delivers, when it delivers one.
+      - name: kind
+        type: Optional<org.shared.KindName>
+        summary: The kind an organization type gives. Stored, never interpreted.
+      - name: revision
+        type: Integer
+      - name: drafted_at
+        type: Timestamp
+      - name: in_force_at
+        type: Optional<Timestamp>
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - name: steps
+        kind: owns
+        target: org.process.Step
+        cardinality: many
+        via: process_id
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: offering
+        kind: references
+        target: org.offering.Offering
+        cardinality: one
+        via: offering_id
+    invariants:
+      - revision >= 1
+    lifecycle:
+      initial: Draft
+      states:
+        - {name: Draft, summary: "Takes steps; no work follows it yet."}
+        - {name: InForce, summary: "Work follows it. A change of its steps is a new revision."}
+        - {name: Retired, summary: "Stays on record; no new work follows it and it takes no new step."}
+      terminal: [Retired]
+      # UNMAPPED: the lifecycle is Draft → InForce → Retired, with no way out of Draft for a
+      # draft nobody puts in force. Taken: none; such a process stays a Draft. Open question
+      # for the owner: a `retire` from Draft as well.
+      transitions:
+        - {name: put_in_force, from: [Draft], to: InForce}
+        - {name: retire, from: [InForce], to: Retired}
+
+  - name: org.process.Step
+    naming:
+      summary: >-
+        One step of a process: its place in the order, what kind of activity it is and the role
+        that performs it. A Decide step names the decision class it settles.
+    identity:
+      name: step_id
+      type: org.shared.StepId
+    fields:
+      - name: process_id
+        type: org.shared.ProcessId
+      - name: ordinal
+        type: Integer
+        summary: The place of the step in the order of its process, from 1.
+      - name: name
+        type: org.shared.Name
+      - name: activity
+        type: org.process.Activity
+      - name: role_id
+        type: org.shared.RoleId
+        summary: The role that performs the step.
+      - name: decision_class_id
+        type: Optional<org.shared.DecisionClassId>
+        summary: The class of decision a Decide step settles.
+      - name: listed_at
+        type: Timestamp
+      - name: removed_at
+        type: Optional<Timestamp>
+    relations:
+      - name: role
+        kind: references
+        target: org.role.Role
+        cardinality: one
+        via: role_id
+      - name: decision_class
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: one
+        via: decision_class_id
+    invariants:
+      - ordinal >= 1
+      - any: [activity != Decide, defined(decision_class_id)]
+    lifecycle:
+      initial: Listed
+      states:
+        - {name: Listed, summary: "Part of its process."}
+        - {name: Removed, summary: "No longer part of its process; stays on record."}
+      terminal: [Removed]
+      transitions:
+        - {name: remove, from: [Listed], to: Removed}
+
+errors:
+  - name: org.process.ProcessNotFound
+    summary: No process of this identity exists, and nothing changed.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+  - name: org.process.OrganizationNotFound
+    summary: No organization of this identity exists, and no process was drafted.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.process.OfferingNotFound
+    summary: No offering of this identity exists, and no process was drafted.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.process.ProcessStateConflict
+    summary: The process is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: state, type: org.process.Process.State}
+
+  - name: org.process.ProcessNotInForce
+    summary: Only a process in force is revised; this one is a Draft or retired, and nothing changed.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+  - name: org.process.ProcessIsRetired
+    summary: A retired process takes no new step, and nothing was listed.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+  - name: org.process.StepNotFound
+    summary: No step of this identity exists, and nothing changed.
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+
+  - name: org.process.RoleNotFound
+    summary: No role of this identity exists to perform the step, and nothing was listed.
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+
+  - name: org.process.StepAlreadyRemoved
+    summary: The step was removed before, and nothing changed.
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+
+  - name: org.process.StepOrdinalInvalid
+    summary: The place of a step in the order starts at 1, and nothing was listed.
+    fields:
+      - {name: ordinal, type: Integer}
+
+  - name: org.process.DecideStepWithoutClass
+    summary: >-
+      A Decide step names the class of decision it settles; this one named none, and nothing was
+      listed.
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+
+events:
+  - name: org.process.ProcessDrafted
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.process.ProcessPutInForce
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.process.ProcessRevised
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.process.ProcessRetired
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: at, type: Timestamp}
+
+  - name: org.process.StepListed
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: ordinal, type: Integer}
+      - {name: name, type: org.shared.Name}
+      - {name: activity, type: org.process.Activity}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.process.StepRemoved
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.process.DraftProcess
+    naming:
+      wire: draft-process
+      display: Draft a process
+    input:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.process.OrganizationNotFound
+        payload:
+          org.process.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: no-such-offering
+        when_related: {via: input.offering_id, exists: false}
+        error: org.process.OfferingNotFound
+        payload:
+          org.process.OfferingNotFound: {offering_id: input.offering_id}
+      - name: drafted
+        creates: org.process.Process
+        instance: process_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          offering_id: input.offering_id
+          kind: input.kind
+          revision: 1
+          drafted_at: input.at
+        emits: [org.process.ProcessDrafted]
+        payload:
+          org.process.ProcessDrafted:
+            process_id: input.process_id
+            organization_id: input.organization_id
+            name: input.name
+            offering_id: input.offering_id
+            kind: input.kind
+            at: input.at
+        summary: The process is a Draft at revision 1 and has no step.
+
+  - name: org.process.PutProcessInForce
+    naming:
+      wire: put-process-in-force
+      display: Put a process in force
+    input:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-process
+        unknown_instance: true
+        error: org.process.ProcessNotFound
+        payload:
+          org.process.ProcessNotFound: {process_id: input.process_id}
+      - name: put-in-force
+        moves: org.process.Process.put_in_force
+        instance: process_id
+        sets:
+          in_force_at: input.at
+        emits: [org.process.ProcessPutInForce]
+        payload:
+          org.process.ProcessPutInForce:
+            process_id: input.process_id
+            revision: {subject: revision}
+            at: input.at
+        summary: Work may follow the process from now on.
+      - name: wrong-state
+        wrong_state: true
+        error: org.process.ProcessStateConflict
+        payload:
+          org.process.ProcessStateConflict:
+            process_id: input.process_id
+            state: {subject: state}
+        summary: Only a Draft is put in force.
+
+  # UNMAPPED: the design wants a change of an in-force process's steps to be a new revision in
+  # the same outcome that lists or removes the step. ESS refuses that: an outcome that creates
+  # its subject takes no `affects:` (ESS-COMMAND-009, `unsupported_construct`), so ListStep
+  # cannot raise the revision of its process. Taken instead: ListStep and RemoveStep change the
+  # steps, and this command states that the steps as listed now are the next revision. Nothing
+  # here refuses a step change on a process in force that no revision follows.
+  - name: org.process.ReviseProcess
+    naming:
+      wire: revise-process
+      display: Revise a process in force
+      summary: >-
+        States that the steps of a process in force, as listed now, are its next revision. The
+        event carries the new revision number.
+    input:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-process
+        unknown_instance: true
+        error: org.process.ProcessNotFound
+        payload:
+          org.process.ProcessNotFound: {process_id: input.process_id}
+      - name: revised
+        when_subject_state: InForce
+        updates: org.process.Process
+        instance: process_id
+        sets:
+          revision: {increment: 1}
+        emits: [org.process.ProcessRevised]
+        payload:
+          org.process.ProcessRevised:
+            process_id: input.process_id
+            revision: {expr: "subject.revision + 1"}
+            at: input.at
+        summary: The process stays in force at the next revision.
+      - name: not-in-force
+        error: org.process.ProcessNotInForce
+        payload:
+          org.process.ProcessNotInForce: {process_id: input.process_id}
+        summary: A Draft has no revision to follow yet, and a retired process takes none.
+
+  - name: org.process.RetireProcess
+    naming:
+      wire: retire-process
+      display: Retire a process
+    input:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-process
+        unknown_instance: true
+        error: org.process.ProcessNotFound
+        payload:
+          org.process.ProcessNotFound: {process_id: input.process_id}
+      - name: retired
+        moves: org.process.Process.retire
+        instance: process_id
+        sets:
+          retired_at: input.at
+        emits: [org.process.ProcessRetired]
+        payload:
+          org.process.ProcessRetired:
+            process_id: input.process_id
+            at: input.at
+        summary: No new work follows the process; work that follows it is not changed here.
+      - name: wrong-state
+        wrong_state: true
+        error: org.process.ProcessStateConflict
+        payload:
+          org.process.ProcessStateConflict:
+            process_id: input.process_id
+            state: {subject: state}
+        summary: Only a process in force is retired.
+
+  # UNMAPPED: the design says "steps in order" and does not say whether two listed steps of one
+  # process may share an ordinal (steps done side by side). Taken: not refused; the order of two
+  # steps with one ordinal is undefined. Open question for the owner: if an ordinal is unique,
+  # the refusal is a row-set guard over the listed steps of the process.
+  # UNMAPPED: that the decision class a step names exists is not checked. The refusal
+  # `when_related: {via: input.decision_class_id, exists: false}` validates, and synthesis then
+  # writes no scenario for `decide-without-class` (ESS-SYNTH-003), the refusal that reads the
+  # same optional input as absent. Taken: the identifier is stored as given, and the relation
+  # `decision_class` declares what it names. The role of a step is checked.
+  - name: org.process.ListStep
+    naming:
+      wire: list-step
+      display: List a step of a process
+    input:
+      - {name: step_id, type: org.shared.StepId}
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: ordinal, type: Integer}
+      - {name: name, type: org.shared.Name}
+      - {name: activity, type: org.process.Activity}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: invalid-ordinal
+        when: ordinal < 1
+        error: org.process.StepOrdinalInvalid
+        payload:
+          org.process.StepOrdinalInvalid: {ordinal: input.ordinal}
+      - name: decide-without-class
+        when:
+          all:
+            - activity == Decide
+            - not defined(decision_class_id)
+        error: org.process.DecideStepWithoutClass
+        payload:
+          org.process.DecideStepWithoutClass: {process_id: input.process_id}
+      - name: no-such-process
+        when_related: {via: input.process_id, exists: false}
+        error: org.process.ProcessNotFound
+        payload:
+          org.process.ProcessNotFound: {process_id: input.process_id}
+      - name: no-such-role
+        when_related: {via: input.role_id, exists: false}
+        error: org.process.RoleNotFound
+        payload:
+          org.process.RoleNotFound: {role_id: input.role_id}
+      - name: process-retired
+        when_related: {via: input.process_id, predicate: state == Retired}
+        error: org.process.ProcessIsRetired
+        payload:
+          org.process.ProcessIsRetired: {process_id: input.process_id}
+      - name: listed
+        creates: org.process.Step
+        instance: step_id
+        sets:
+          process_id: input.process_id
+          ordinal: input.ordinal
+          name: input.name
+          activity: input.activity
+          role_id: input.role_id
+          decision_class_id: input.decision_class_id
+          listed_at: input.at
+        emits: [org.process.StepListed]
+        payload:
+          org.process.StepListed:
+            step_id: input.step_id
+            process_id: input.process_id
+            ordinal: input.ordinal
+            name: input.name
+            activity: input.activity
+            role_id: input.role_id
+            decision_class_id: input.decision_class_id
+            at: input.at
+        summary: >-
+          The step is part of the process. On a process in force the change counts as a revision
+          once ReviseProcess says so.
+
+  - name: org.process.RemoveStep
+    naming:
+      wire: remove-step
+      display: Remove a step from its process
+    input:
+      - {name: step_id, type: org.shared.StepId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-step
+        unknown_instance: true
+        error: org.process.StepNotFound
+        payload:
+          org.process.StepNotFound: {step_id: input.step_id}
+      - name: removed
+        moves: org.process.Step.remove
+        instance: step_id
+        sets:
+          removed_at: input.at
+        emits: [org.process.StepRemoved]
+        payload:
+          org.process.StepRemoved:
+            step_id: input.step_id
+            process_id: {subject: process_id}
+            at: input.at
+        summary: The step is no longer part of its process and stays on record.
+      - name: already-removed
+        wrong_state: true
+        error: org.process.StepAlreadyRemoved
+        payload:
+          org.process.StepAlreadyRemoved: {step_id: input.step_id}
+
+views:
+  - name: org.process.Processes
+    source: org.process.Process
+    consistency: read_your_writes
+    fields:
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: offering_id, type: Optional<org.shared.OfferingId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: revision, type: Integer}
+      - {name: drafted_at, type: Timestamp}
+      - {name: in_force_at, type: Optional<Timestamp>}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.process.Process.State}
+    naming:
+      wire: processes
+      display: Processes
+
+  - name: org.process.Steps
+    source: org.process.Step
+    consistency: read_your_writes
+    fields:
+      - {name: step_id, type: org.shared.StepId}
+      - {name: process_id, type: org.shared.ProcessId}
+      - {name: ordinal, type: Integer}
+      - {name: name, type: org.shared.Name}
+      - {name: activity, type: org.process.Activity}
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: listed_at, type: Timestamp}
+      - {name: removed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.process.Step.State}
+    naming:
+      wire: steps
+      display: Steps

@@ -1,0 +1,28 @@
+format: orgspec-organization/1
+organization: broken-agent_decides_only_reversible
+type: agent-operated
+origin: invented
+summary: "Valid except that a position held only by agents decides an irreversible class."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 3, held_by: agent }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+  erase:  { block: decision_class, kind: irreversible }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: hand,   to: lead,   carries: answers_to }
+  - { from: hand,   to: lead,   carries: escalates, after: 1h }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: lead,   to: spend,  carries: decides, mode: sole }
+  - { from: hand,   to: erase,  carries: decides, mode: sole }
+
+border: [lead]

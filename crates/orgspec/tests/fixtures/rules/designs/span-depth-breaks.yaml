@@ -1,0 +1,20 @@
+format: orgspec-organization/1
+organization: library
+type: flat
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  aide:      { block: position, in: desk, role: librarian, seats: 4 }
+  page:      { block: position, in: desk, role: librarian, seats: 2 }
+  clerk:     { block: position, in: desk, role: librarian }
+  junior:    { block: position, in: desk, role: librarian }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: aide, to: head, carries: reports_to }
+  - { from: page, to: head, carries: reports_to }
+  - { from: clerk, to: head, carries: reports_to }
+  - { from: junior, to: aide, carries: reports_to }

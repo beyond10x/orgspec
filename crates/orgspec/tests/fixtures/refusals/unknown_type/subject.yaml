@@ -1,0 +1,5 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+extends: [gallery]
+summary: Extends a type no document declares.

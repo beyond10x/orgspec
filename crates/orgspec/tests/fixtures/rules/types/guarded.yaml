@@ -1,0 +1,11 @@
+format: orgspec-type/1
+type: guarded
+origin: invented
+summary: An organization in which agents decide only what can be undone. Rule form `forbid`.
+rules:
+  - id: agent_decides_only_reversible
+    summary: A position held by agents decides no irreversible decision class.
+    rule: forbid
+    carries: decides
+    from: { block: position, held_by: agent }
+    to: { block: decision_class, where: { reversible: false } }

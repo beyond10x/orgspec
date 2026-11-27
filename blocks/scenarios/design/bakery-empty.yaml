@@ -1,0 +1,37 @@
+# Broken variant: the bakery's revision is committed before any part is declared.
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-empty
+summary: A design revision with no part is refused at commit (EmptyDesign) and stays a draft.
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.CommitRevision
+    input: {revision_id: {$instance: rev}, at: 2026-11-27T09:00:02Z}
+    outcome: empty
+    error:
+      name: org.design.EmptyDesign
+    no_events: [org.design.RevisionCommitted]
+
+assert:
+  - view: org.design.Revisions
+    contains:
+      revision_id: {$instance: rev}
+      state: Draft

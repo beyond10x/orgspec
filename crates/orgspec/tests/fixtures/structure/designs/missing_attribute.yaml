@@ -1,0 +1,14 @@
+format: orgspec-organization/1
+organization: bakery
+type: shop
+origin: invented
+parts:
+  bakery:     { block: organization }
+  board:      { block: unit, nature: governing, in: bakery }
+  kitchen:    { block: unit, nature: line, in: bakery }
+  baker:      { block: role }
+  head:       { block: position, in: kitchen, role: baker }
+  stone_oven: { block: asset, kind: oven }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: head, to: stone_oven, carries: accountable }

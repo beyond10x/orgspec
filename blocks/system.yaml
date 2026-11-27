@@ -1,0 +1,43 @@
+format: ess/37
+system: org
+version: v1
+
+summary: >-
+  The building blocks of an organization: parties, the organization and its boundary, units,
+  roles, positions, memberships, assignments, competences, decision rights, delegations,
+  policies, offerings, relationships, goals, assets, budgets, processes, work, agreements,
+  forums, channels, escalations, responsibilities, risks, obligations, and the design that
+  composes them. Each block is a contract; a system that implements one proves it against the
+  block's commands, events and views.
+
+domains:
+  - org.shared
+  - org.party
+  - org.organization
+  - org.unit
+  - org.role
+  - org.position
+  - org.membership
+  - org.assignment
+  - org.competence
+  - org.decision
+  - org.delegation
+  - org.policy
+  - org.offering
+  - org.relationship
+  - org.goal
+  - org.asset
+  - org.budget
+  - org.process
+  - org.work
+  - org.agreement
+  - org.forum
+  - org.channel
+  - org.escalation
+  - org.responsibility
+  - org.risk
+  - org.obligation
+  - org.type
+  - org.design
+  - org.kpi
+  - org.experiment

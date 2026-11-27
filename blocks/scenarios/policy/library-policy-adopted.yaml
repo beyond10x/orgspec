@@ -1,0 +1,232 @@
+# An invented library puts a lending rule into force. A draft binds nobody until a taken
+# decision adopts it. A policy in force is not adopted again and not redrafted; it changes only
+# under a new decision that is on record and taken, and each change is the next revision. It is
+# then retired.
+#
+#   0301 party, 0302 organization, 0303 unit `lending desk`, 0304 decision class `lending rules`,
+#   0305 decision right, 0306 the adopting decision, 0307 the revising decision, 0308 the policy,
+#   0309 a decision nobody opened, 0311 position head-librarian
+type: ess-scenario/7
+domain: org.policy
+scenario: library-policy-adopted
+summary: A taken decision adopts a draft; in force it refuses AdoptPolicy and RedraftPolicy (PolicyStateConflict), is revised only under a taken decision (PolicyWithoutDecision), and is retired.
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.party.RegisterParty
+    input:
+      party_id: 00000000-0000-4000-8000-000000000301
+      kind: Organization
+      name: library
+      at: 2026-11-27T09:00:00Z
+    outcome: registered
+  - at: 2026-11-27T09:00:01Z
+    command: org.organization.FoundOrganization
+    input:
+      organization_id: 00000000-0000-4000-8000-000000000302
+      party_id: 00000000-0000-4000-8000-000000000301
+      name: library
+      purpose: Lends books to the people of a town.
+      form: PublicBody
+      at: 2026-11-27T09:00:01Z
+    outcome: founded
+  - at: 2026-11-27T09:00:02Z
+    command: org.unit.FormUnit
+    input:
+      unit_id: 00000000-0000-4000-8000-000000000303
+      organization_id: 00000000-0000-4000-8000-000000000302
+      name: lending desk
+      nature: Line
+      basis: Function
+      at: 2026-11-27T09:00:02Z
+    outcome: formed
+  - at: 2026-11-27T09:00:03Z
+    command: org.decision.DeclareDecisionClass
+    input:
+      class_id: 00000000-0000-4000-8000-000000000304
+      organization_id: 00000000-0000-4000-8000-000000000302
+      name: lending rules
+      reversible: true
+      at: 2026-11-27T09:00:03Z
+    outcome: declared
+  - at: 2026-11-27T09:00:04Z
+    command: org.decision.ProposeDecisionRight
+    input:
+      right_id: 00000000-0000-4000-8000-000000000305
+      class_id: 00000000-0000-4000-8000-000000000304
+      scope: 00000000-0000-4000-8000-000000000303
+      decider: {position: 00000000-0000-4000-8000-000000000311}
+      class_reversible: true
+      mode: Sole
+      consulted: []
+      informed: []
+      at: 2026-11-27T09:00:04Z
+    outcome: proposed
+  - at: 2026-11-27T09:00:05Z
+    command: org.decision.EnactDecisionRight
+    input: {right_id: 00000000-0000-4000-8000-000000000305, at: 2026-11-27T09:00:05Z}
+    outcome: enacted
+  - at: 2026-11-27T09:00:06Z
+    command: org.decision.OpenDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000306
+      right_id: 00000000-0000-4000-8000-000000000305
+      question: How long is a book lent?
+      options: [two weeks, three weeks]
+      at: 2026-11-27T09:00:06Z
+    outcome: opened
+  - at: 2026-11-27T09:00:07Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000306
+      chosen: three weeks
+      decided_by: 00000000-0000-4000-8000-000000000311
+      at: 2026-11-27T09:00:07Z
+    outcome: decided
+
+  # the draft is adopted under the taken decision
+  - at: 2026-11-27T09:00:08Z
+    command: org.policy.DraftPolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      organization_id: 00000000-0000-4000-8000-000000000302
+      scope: 00000000-0000-4000-8000-000000000303
+      category: Rule
+      title: Loan period
+      statement: A book is lent for three weeks.
+      at: 2026-11-27T09:00:08Z
+    outcome: drafted
+  - at: 2026-11-27T09:00:09Z
+    command: org.policy.AdoptPolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      adopted_by: 00000000-0000-4000-8000-000000000306
+      at: 2026-11-27T09:00:09Z
+    outcome: adopted
+    events:
+      - event: org.policy.PolicyAdopted
+        payload:
+          policy_id: 00000000-0000-4000-8000-000000000308
+          organization_id: 00000000-0000-4000-8000-000000000302
+          scope: 00000000-0000-4000-8000-000000000303
+          category: Rule
+          adopted_by: 00000000-0000-4000-8000-000000000306
+          revision: 1
+          at: 2026-11-27T09:00:09Z
+
+  # in force: not adopted again, not redrafted
+  - at: 2026-11-27T09:00:10Z
+    command: org.policy.AdoptPolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      adopted_by: 00000000-0000-4000-8000-000000000306
+      at: 2026-11-27T09:00:10Z
+    outcome: wrong-state
+    error:
+      name: org.policy.PolicyStateConflict
+      fields: {policy_id: 00000000-0000-4000-8000-000000000308, state: InForce}
+    no_events: [org.policy.PolicyAdopted]
+  - at: 2026-11-27T09:00:11Z
+    command: org.policy.RedraftPolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      title: Loan period
+      statement: A book is lent for two weeks.
+      at: 2026-11-27T09:00:11Z
+    outcome: wrong-state
+    error:
+      name: org.policy.PolicyStateConflict
+      fields: {policy_id: 00000000-0000-4000-8000-000000000308, state: InForce}
+    no_events: [org.policy.PolicyRedrafted]
+
+  # revised only under a decision on record and taken
+  - at: 2026-11-27T10:00:00Z
+    command: org.policy.RevisePolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      statement: A book is lent for two weeks.
+      adopted_by: 00000000-0000-4000-8000-000000000309
+      at: 2026-11-27T10:00:00Z
+    outcome: no-such-decision
+    error:
+      name: org.policy.PolicyWithoutDecision
+      fields:
+        policy_id: 00000000-0000-4000-8000-000000000308
+        decision_id: 00000000-0000-4000-8000-000000000309
+    no_events: [org.policy.PolicyRevised]
+  - at: 2026-11-27T10:00:01Z
+    command: org.decision.OpenDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000307
+      right_id: 00000000-0000-4000-8000-000000000305
+      question: Is a book in demand lent for a shorter time?
+      options: [two weeks, three weeks]
+      at: 2026-11-27T10:00:01Z
+    outcome: opened
+  - at: 2026-11-27T10:00:02Z
+    command: org.policy.RevisePolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      statement: A book is lent for two weeks.
+      adopted_by: 00000000-0000-4000-8000-000000000307
+      at: 2026-11-27T10:00:02Z
+    outcome: decision-not-taken
+    error:
+      name: org.policy.PolicyWithoutDecision
+      fields:
+        policy_id: 00000000-0000-4000-8000-000000000308
+        decision_id: 00000000-0000-4000-8000-000000000307
+    no_events: [org.policy.PolicyRevised]
+  - at: 2026-11-27T10:00:03Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000307
+      chosen: two weeks
+      decided_by: 00000000-0000-4000-8000-000000000311
+      at: 2026-11-27T10:00:03Z
+    outcome: decided
+  - at: 2026-11-27T10:00:04Z
+    command: org.policy.RevisePolicy
+    input:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      statement: A book is lent for two weeks.
+      adopted_by: 00000000-0000-4000-8000-000000000307
+      at: 2026-11-27T10:00:04Z
+    outcome: revised
+    events:
+      - event: org.policy.PolicyRevised
+        payload:
+          policy_id: 00000000-0000-4000-8000-000000000308
+          previous_revision: 1
+          revision: 2
+          statement: A book is lent for two weeks.
+          adopted_by: 00000000-0000-4000-8000-000000000307
+          at: 2026-11-27T10:00:04Z
+
+  # retired from force
+  - at: 2026-11-27T11:00:00Z
+    command: org.policy.RetirePolicy
+    input: {policy_id: 00000000-0000-4000-8000-000000000308, at: 2026-11-27T11:00:00Z}
+    outcome: retired
+    events:
+      - event: org.policy.PolicyRetired
+        payload:
+          policy_id: 00000000-0000-4000-8000-000000000308
+          retired_from: InForce
+          at: 2026-11-27T11:00:00Z
+
+assert:
+  - view: org.policy.Policies
+    contains:
+      policy_id: 00000000-0000-4000-8000-000000000308
+      statement: A book is lent for two weeks.
+      adopted_by: 00000000-0000-4000-8000-000000000307
+      revision: 2
+      in_force_since: 2026-11-27T09:00:09Z
+      retired_at: 2026-11-27T11:00:00Z
+      state: Retired
+  - view: org.policy.PoliciesInForce
+    params:
+      organization_id: 00000000-0000-4000-8000-000000000302
+    counts:
+      at_most: 0

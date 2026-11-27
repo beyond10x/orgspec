@@ -1,0 +1,144 @@
+# The invented bakery's price question again, and this time nobody decides. One second before
+# the due instant the default is refused (`not-due`); at the due instant it is taken, and no
+# position is recorded as the decider. A decision taken on default then refuses to be decided,
+# taken on default again and withdrawn.
+#
+#   0221 party, 0222 organization, 0223 unit `shop`, 0224 decision class `prices`,
+#   0225 decision right, 0226 decision, 0231 position head-baker
+type: ess-scenario/7
+domain: org.decision
+scenario: bakery-decision-taken-on-default
+summary: The default option is taken at the due instant and not before (DecisionNotDue); a decision taken on default refuses every further command (DecisionStateConflict).
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.party.RegisterParty
+    input:
+      party_id: 00000000-0000-4000-8000-000000000221
+      kind: Organization
+      name: bakery
+      at: 2026-11-27T09:00:00Z
+    outcome: registered
+  - at: 2026-11-27T09:00:01Z
+    command: org.organization.FoundOrganization
+    input:
+      organization_id: 00000000-0000-4000-8000-000000000222
+      party_id: 00000000-0000-4000-8000-000000000221
+      name: bakery
+      purpose: Bakes bread and sells it over the counter.
+      form: Company
+      at: 2026-11-27T09:00:01Z
+    outcome: founded
+  - at: 2026-11-27T09:00:02Z
+    command: org.unit.FormUnit
+    input:
+      unit_id: 00000000-0000-4000-8000-000000000223
+      organization_id: 00000000-0000-4000-8000-000000000222
+      name: shop
+      nature: Line
+      basis: Offering
+      at: 2026-11-27T09:00:02Z
+    outcome: formed
+  - at: 2026-11-27T09:00:03Z
+    command: org.decision.DeclareDecisionClass
+    input:
+      class_id: 00000000-0000-4000-8000-000000000224
+      organization_id: 00000000-0000-4000-8000-000000000222
+      name: prices
+      reversible: true
+      at: 2026-11-27T09:00:03Z
+    outcome: declared
+  - at: 2026-11-27T09:00:04Z
+    command: org.decision.ProposeDecisionRight
+    input:
+      right_id: 00000000-0000-4000-8000-000000000225
+      class_id: 00000000-0000-4000-8000-000000000224
+      scope: 00000000-0000-4000-8000-000000000223
+      decider: {position: 00000000-0000-4000-8000-000000000231}
+      class_reversible: true
+      mode: Sole
+      consulted: []
+      informed: []
+      at: 2026-11-27T09:00:04Z
+    outcome: proposed
+  - at: 2026-11-27T09:00:05Z
+    command: org.decision.EnactDecisionRight
+    input: {right_id: 00000000-0000-4000-8000-000000000225, at: 2026-11-27T09:00:05Z}
+    outcome: enacted
+  - at: 2026-11-27T09:00:06Z
+    command: org.decision.OpenDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000226
+      right_id: 00000000-0000-4000-8000-000000000225
+      question: What does a loaf cost from Monday?
+      options: ["3.20", "3.50", "3.80"]
+      default_option: "3.20"
+      due: 2026-11-27T12:00:00Z
+      at: 2026-11-27T09:00:06Z
+    outcome: opened
+
+  # one second early
+  - at: 2026-11-27T11:59:59Z
+    command: org.decision.TakeDecisionOnDefault
+    input: {decision_id: 00000000-0000-4000-8000-000000000226, at: 2026-11-27T11:59:59Z}
+    outcome: not-due
+    error:
+      name: org.decision.DecisionNotDue
+      fields:
+        decision_id: 00000000-0000-4000-8000-000000000226
+        due: 2026-11-27T12:00:00Z
+    no_events: [org.decision.DecisionTakenOnDefault]
+  # at the due instant
+  - at: 2026-11-27T12:00:00Z
+    command: org.decision.TakeDecisionOnDefault
+    input: {decision_id: 00000000-0000-4000-8000-000000000226, at: 2026-11-27T12:00:00Z}
+    outcome: taken-on-default
+    events:
+      - event: org.decision.DecisionTakenOnDefault
+        payload:
+          decision_id: 00000000-0000-4000-8000-000000000226
+          class_id: 00000000-0000-4000-8000-000000000224
+          scope: 00000000-0000-4000-8000-000000000223
+          right_id: 00000000-0000-4000-8000-000000000225
+          chosen: "3.20"
+          at: 2026-11-27T12:00:00Z
+
+  # a decision taken on default is not edited
+  - at: 2026-11-27T12:00:01Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000226
+      chosen: "3.50"
+      decided_by: 00000000-0000-4000-8000-000000000231
+      at: 2026-11-27T12:00:01Z
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000226, state: TakenOnDefault}
+    no_events: [org.decision.DecisionTaken]
+  - at: 2026-11-27T12:00:02Z
+    command: org.decision.TakeDecisionOnDefault
+    input: {decision_id: 00000000-0000-4000-8000-000000000226, at: 2026-11-27T12:00:02Z}
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000226, state: TakenOnDefault}
+  - at: 2026-11-27T12:00:03Z
+    command: org.decision.WithdrawDecision
+    input: {decision_id: 00000000-0000-4000-8000-000000000226, at: 2026-11-27T12:00:03Z}
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000226, state: TakenOnDefault}
+    no_events: [org.decision.DecisionWithdrawn]
+
+assert:
+  - view: org.decision.Decisions
+    contains:
+      decision_id: 00000000-0000-4000-8000-000000000226
+      default_option: "3.20"
+      due: 2026-11-27T12:00:00Z
+      chosen: "3.20"
+      decided_by: null
+      closed_at: 2026-11-27T12:00:00Z
+      state: TakenOnDefault

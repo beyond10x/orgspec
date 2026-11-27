@@ -1,0 +1,117 @@
+format: orgspec-type/1
+type: product-company
+origin: invented
+extends: [base]
+summary: An organization that builds products and offers them to many customers at once.
+
+vocabulary:
+  unit: team
+  offering: product
+
+kinds:
+  squad:
+    block: unit
+    nature: line
+    basis: offering
+    summary: A team that builds one product or one part of it, from idea to use.
+  platform:
+    block: unit
+    nature: line
+    basis: function
+    summary: A team whose offering is used by the other teams.
+  guild:
+    block: unit
+    nature: community
+    summary: The people of one craft across the teams.
+  product:
+    block: offering
+    audience: external
+    summary: What customers use.
+    attributes:
+      stage: { type: enum, values: [idea, beta, live, sunset], required: true }
+  internal_service:
+    block: offering
+    audience: internal
+    summary: What a platform team offers to the other teams.
+  product_lead:
+    block: role
+    summary: Decides what a squad builds next.
+  release:
+    block: decision_class
+    summary: Whether a change reaches customers.
+
+rules:
+  - id: squad_has_one_product_lead
+    summary: Every squad has one position that plays a product lead role.
+    rule: parts
+    match: { block: position, role_kind: product_lead }
+    per: { block: unit, kind: squad }
+    min: 1
+    max: 1
+
+  - id: squad_serves_an_offering
+    summary: Every squad serves at least one offering.
+    rule: links
+    each: { block: unit, kind: squad }
+    carries: serves
+    direction: out
+    other: { block: offering }
+    min: 1
+
+  - id: platform_serves_internal_service
+    summary: Every platform team serves at least one internal service.
+    rule: links
+    each: { block: unit, kind: platform }
+    carries: serves
+    direction: out
+    other: { block: offering, kind: internal_service }
+    min: 1
+
+  - id: used_product_has_demand
+    summary: A product in beta or live has demand from at least one relationship.
+    rule: links
+    each: { block: offering, kind: product, where: { stage: [beta, live] } }
+    carries: demand
+    direction: in
+    min: 1
+
+  - id: release_class_exists
+    summary: The design says who decides a release.
+    rule: parts
+    match: { block: decision_class, kind: release }
+    min: 1
+
+  - id: span_at_most_ten
+    summary: No position has more than ten positions reporting to it.
+    rule: span
+    max: 10
+    gate: false
+
+  - id: depth_at_most_four
+    summary: No reporting chain is longer than four links.
+    rule: depth
+    max: 4
+    gate: false
+
+kpis:
+  - id: releases_per_week
+    block: offering
+    of_kind: product
+    measures: quality
+    unit: count
+    summary: Releases of a product that reached customers, per week.
+    direction: higher
+  - id: idea_to_live_days
+    block: offering
+    of_kind: product
+    measures: quality
+    unit: days
+    summary: Days from a request accepted by a squad to the release that fulfils it.
+    direction: lower
+  - id: squads_without_live_product_share
+    block: unit
+    of_kind: squad
+    measures: completeness
+    unit: share
+    summary: Share of squads that serve no product in stage live.
+    direction: lower

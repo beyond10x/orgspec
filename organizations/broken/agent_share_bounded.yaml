@@ -1,0 +1,26 @@
+format: orgspec-organization/1
+organization: broken-agent_share_bounded
+type: agent-operated
+origin: invented
+summary: "Valid except that agents hold nine in ten seats of a mixed position."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 10, held_by: mixed, agent_share: 0.9 }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: hand,   to: lead,   carries: answers_to }
+  - { from: hand,   to: lead,   carries: escalates, after: 1h }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: lead,   to: spend,  carries: decides, mode: sole }
+
+border: [lead]

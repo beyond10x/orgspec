@@ -1,0 +1,11 @@
+domain: fixture.a
+summary: Fixture.
+naming:
+  wire: a
+  display: a
+entities:
+  - name: fixture.a.A
+    identity: {name: id, type: fixture.base.AId}
+    fields:
+      - {name: b_id, type: fixture.base.BId}
+    lifecycle: {initial: Live, states: [Live], terminal: [Live]}

@@ -1,0 +1,13 @@
+format: orgspec-organization/1
+organization: clinic
+type: clinic
+origin: invented
+summary: A ward above the bed limit. Under `clinic` the limit is counted and is no gate.
+parts:
+  clinic:     { block: organization, form: association }
+  board:      { block: unit, nature: governing, in: clinic }
+  east:       { block: unit, kind: ward, beds: 40, in: clinic }
+  head_nurse: { block: role, kind: lead }
+  sister:     { block: position, in: east, role: head_nurse }
+links:
+  - { from: sister, to: board, carries: reports_to }

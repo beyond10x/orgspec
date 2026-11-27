@@ -1,0 +1,168 @@
+# Broken variants: in one revision of the clinic type a rule id, a link name and a default id
+# are each declared a second time, a link name the blocks already use is declared, and a type
+# takes the name of another type or extends itself.
+type: ess-scenario/7
+domain: org.type
+scenario: clinic-declared-twice
+summary: A second rule id, link name or default id in one revision, a link name of the blocks, a taken type name and a type extending itself are refused.
+
+arrange:
+  - instance: rev
+    entity: org.type.TypeRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.type.DeclareType
+    input:
+      type_id: 00000000-0000-4000-8000-000000000102
+      name: clinic
+      summary: A practice with wards and practitioners.
+      at: 2026-11-27T09:00:00Z
+    outcome: declared
+  - at: 2026-11-27T09:00:01Z
+    command: org.type.DeclareType
+    input:
+      type_id: 00000000-0000-4000-8000-000000000103
+      name: clinic
+      summary: Another practice.
+      at: 2026-11-27T09:00:01Z
+    outcome: name-taken
+    error:
+      name: org.type.TypeNameTaken
+    no_events: [org.type.TypeDeclared]
+  - at: 2026-11-27T09:00:02Z
+    command: org.type.ExtendType
+    input:
+      type_id: 00000000-0000-4000-8000-000000000102
+      extended_type_id: 00000000-0000-4000-8000-000000000102
+      at: 2026-11-27T09:00:02Z
+    outcome: extends-itself
+    error:
+      name: org.type.TypeExtendsItself
+    no_events: [org.type.TypeExtended]
+  - at: 2026-11-27T09:00:03Z
+    command: org.type.ExtendType
+    input:
+      type_id: 00000000-0000-4000-8000-000000000102
+      extended_type_id: 00000000-0000-4000-8000-000000000109
+      at: 2026-11-27T09:00:03Z
+    outcome: no-such-extended-type
+    error:
+      name: org.type.NoSuchType
+    no_events: [org.type.TypeExtended]
+  - at: 2026-11-27T09:00:04Z
+    command: org.type.OpenRevision
+    input: {type_id: 00000000-0000-4000-8000-000000000102, at: 2026-11-27T09:00:04Z}
+    outcome: opened
+    capture: {instance: rev, event: org.type.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:05Z
+    command: org.type.OpenRevision
+    input: {type_id: 00000000-0000-4000-8000-000000000102, at: 2026-11-27T09:00:05Z}
+    outcome: draft-open
+    error:
+      name: org.type.DraftRevisionOpen
+    no_events: [org.type.RevisionOpened]
+
+  # rule id
+  - at: 2026-11-27T09:00:06Z
+    command: org.type.DeclareRule
+    input:
+      type_id: 00000000-0000-4000-8000-000000000102
+      revision_id: {$instance: rev}
+      rule_id: ward_has_consultant
+      form: Parts
+      gate: true
+      summary: Every ward has at least one consultant.
+      body: "parts: {kind: consultant, in: ward, min: 1}"
+      at: 2026-11-27T09:00:06Z
+    outcome: declared
+  - at: 2026-11-27T09:00:07Z
+    command: org.type.DeclareRule
+    input:
+      type_id: 00000000-0000-4000-8000-000000000102
+      revision_id: {$instance: rev}
+      rule_id: ward_has_consultant
+      form: Span
+      gate: false
+      summary: A consultant supervises at most eight practitioners.
+      body: "span: {kind: consultant, carries: supervises, max: 8}"
+      at: 2026-11-27T09:00:07Z
+    outcome: declared-twice
+    error:
+      name: org.type.RuleDeclaredTwice
+    no_events: [org.type.RuleDeclared]
+
+  # link name
+  - at: 2026-11-27T09:00:08Z
+    command: org.type.DeclareLinkName
+    input:
+      revision_id: {$instance: rev}
+      name: supervises
+      summary: A consultant answers for the treatment a practitioner gives.
+      at: 2026-11-27T09:00:08Z
+    outcome: declared
+  - at: 2026-11-27T09:00:09Z
+    command: org.type.DeclareLinkName
+    input:
+      revision_id: {$instance: rev}
+      name: supervises
+      summary: The same name again.
+      at: 2026-11-27T09:00:09Z
+    outcome: declared-twice
+    error:
+      name: org.type.LinkDeclaredTwice
+    no_events: [org.type.LinkNameDeclared]
+  - at: 2026-11-27T09:00:10Z
+    command: org.type.DeclareLinkName
+    input:
+      revision_id: {$instance: rev}
+      name: reports_to
+      summary: A name the blocks already use.
+      at: 2026-11-27T09:00:10Z
+    outcome: used-by-the-blocks
+    error:
+      name: org.type.LinkDeclaredTwice
+    no_events: [org.type.LinkNameDeclared]
+
+  # default id
+  - at: 2026-11-27T09:00:11Z
+    command: org.type.DeclareDefault
+    input:
+      revision_id: {$instance: rev}
+      default_id: practitioner_supervised
+      carries: supervises
+      summary: A practitioner with no supervises link is supervised by the consultant of the ward.
+      body: "from: {kind: consultant, in: ward}, to: {kind: practitioner, in: ward}"
+      at: 2026-11-27T09:00:11Z
+    outcome: declared
+  - at: 2026-11-27T09:00:12Z
+    command: org.type.DeclareDefault
+    input:
+      revision_id: {$instance: rev}
+      default_id: practitioner_supervised
+      carries: supervises
+      summary: The same id again.
+      body: "from: {kind: consultant}, to: {kind: practitioner}"
+      at: 2026-11-27T09:00:12Z
+    outcome: declared-twice
+    error:
+      name: org.type.DefaultDeclaredTwice
+    no_events: [org.type.DefaultDeclared]
+
+assert:
+  - view: org.type.Types
+    counts:
+      at_least: 1
+      at_most: 1
+  - view: org.type.Rules
+    counts:
+      at_least: 1
+      at_most: 1
+  - view: org.type.LinkNames
+    counts:
+      at_least: 1
+      at_most: 1
+  - view: org.type.Defaults
+    counts:
+      at_least: 1
+      at_most: 1

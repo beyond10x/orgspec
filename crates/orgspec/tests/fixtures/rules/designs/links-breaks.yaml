@@ -1,0 +1,15 @@
+format: orgspec-organization/1
+organization: library
+type: linked
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  lending:   { block: offering }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: head, to: lending, carries: accountable }
+  - { from: desk, to: lending, carries: responsible }

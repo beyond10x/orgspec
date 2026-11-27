@@ -1,0 +1,23 @@
+format: orgspec-organization/1
+organization: library
+type: stewarded
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  stacks:    { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  keeper:    { block: role, kind: steward }
+  head:      { block: position, in: desk, role: keeper }
+  warden:    { block: position, in: stacks, role: keeper }
+  sorter:    { block: position, in: desk, role: librarian, held_by: agent }
+  fetcher:   { block: position, in: stacks, role: librarian, held_by: agent }
+  scanner:   { block: position, in: stacks, role: librarian, held_by: agent }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: warden, to: board, carries: reports_to }
+  - { from: sorter, to: head, carries: reports_to }
+  - { from: fetcher, to: warden, carries: reports_to }
+  - { from: scanner, to: warden, carries: reports_to }
+  - { from: scanner, to: head, carries: answers_to }

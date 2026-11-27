@@ -1,0 +1,89 @@
+format: orgspec-type/1
+type: agent-operated
+origin: invented
+extends: [base]
+summary: An organization in which agents hold positions beside humans.
+
+vocabulary:
+  position: seat
+
+kinds:
+  steward:
+    block: role
+    summary: The human role that answers for the agent-held positions of its unit.
+  runbook:
+    block: process
+    summary: A process written so that an agent can follow it without asking.
+    attributes:
+      reviewed_every: { type: duration, required: true }
+  irreversible:
+    block: decision_class
+    reversible: false
+    summary: A class of decisions that cannot be taken back once it took effect.
+
+rules:
+  - id: agent_decides_only_reversible
+    summary: A position held only by agents decides no irreversible decision class.
+    rule: forbid
+    carries: decides
+    from: { block: position, held_by: agent }
+    to: { block: decision_class, reversible: false }
+
+  - id: agent_not_accountable
+    summary: A position held only by agents is accountable for nothing.
+    rule: forbid
+    carries: accountable
+    from: { block: position, held_by: agent }
+    to: {}
+
+  - id: agent_position_escalates
+    summary: Every position that agents hold has somewhere to escalate to.
+    rule: links
+    each: { block: position, held_by: [agent, mixed] }
+    carries: escalates
+    direction: out
+    min: 1
+
+  - id: agent_share_bounded
+    summary: At most three in four seats of a mixed position are held by agents.
+    rule: value
+    each: { block: position, held_by: mixed }
+    field: agent_share
+    max: 0.75
+
+  - id: steward_is_human
+    summary: A steward position is held by humans.
+    rule: value
+    each: { block: position, role_kind: steward }
+    field: held_by
+    one_of: [human]
+
+  - id: agent_span_bounded
+    summary: A steward answers for at most twelve positions.
+    rule: links
+    each: { block: position, role_kind: steward }
+    carries: answers_to
+    direction: in
+    max: 12
+    gate: false
+
+defaults:
+  - id: steward_answers
+    summary: An agent-held position without an answers_to link answers to the steward of its unit.
+    each: { block: position, held_by: agent }
+    carries: answers_to
+    to: { block: position, role_kind: steward, same: unit }
+
+kpis:
+  - id: agent_held_seat_share
+    block: position
+    measures: quality
+    unit: share
+    summary: Share of seats held by agents.
+    direction: higher
+  - id: agent_work_returned_share
+    block: position
+    measures: quality
+    unit: share
+    summary: Share of work items an agent-held position finished that its steward sent back.
+    direction: lower
