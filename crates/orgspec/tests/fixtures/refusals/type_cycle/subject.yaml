@@ -1,0 +1,5 @@
+format: orgspec-type/1
+type: first
+origin: invented
+extends: [second]
+summary: Extends a type that extends it.

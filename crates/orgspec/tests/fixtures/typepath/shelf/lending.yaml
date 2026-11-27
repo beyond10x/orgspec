@@ -1,0 +1,10 @@
+format: orgspec-type/1
+type: lending
+origin: invented
+summary: A library that lends. Found only through the type path.
+rules:
+  - id: has_a_board
+    summary: The organization has a governing unit.
+    rule: parts
+    match: { block: unit, nature: governing }
+    min: 1

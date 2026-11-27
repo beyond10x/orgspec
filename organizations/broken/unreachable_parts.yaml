@@ -1,0 +1,25 @@
+format: orgspec-organization/1
+organization: broken-unreachable_parts
+type: base
+origin: invented
+summary: "Valid except for a relationship that nothing names."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 3 }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+  press:  { block: relationship, tie: partner }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: owners, to: spend,  carries: decides, mode: consent }
+
+border: [lead]

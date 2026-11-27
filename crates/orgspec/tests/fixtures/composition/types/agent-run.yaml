@@ -1,0 +1,12 @@
+format: orgspec-type/1
+type: agent-run
+origin: invented
+summary: An organization in which agents hold positions beside humans.
+rules:
+  - id: agent_position_escalates
+    summary: Every position held by agents has somewhere to escalate to.
+    rule: links
+    each: { block: position, held_by: [agent, mixed] }
+    carries: escalates
+    direction: out
+    min: 1

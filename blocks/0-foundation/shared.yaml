@@ -1,0 +1,141 @@
+domain: org.shared
+
+summary: >-
+  Identifiers of every entity of the building blocks and the value types more than one block
+  uses. A domain names another domain's entity through its identifier here, as a field, and
+  declares a `references` relation on its own entity. An identifier counts as a dependency on
+  the domain whose entity it identifies, so the layer check sees every edge.
+
+naming:
+  wire: shared
+  display: Shared
+
+types:
+  # 1 party
+  - {name: org.shared.PartyId, kind: newtype, of: Uuid}
+  - {name: org.shared.OrganizationId, kind: newtype, of: Uuid}
+
+  # 2 structure
+  - {name: org.shared.UnitId, kind: newtype, of: Uuid}
+  - {name: org.shared.RoleId, kind: newtype, of: Uuid}
+  - {name: org.shared.PositionId, kind: newtype, of: Uuid}
+
+  # 3 people
+  - {name: org.shared.MembershipId, kind: newtype, of: Uuid}
+  - {name: org.shared.AssignmentId, kind: newtype, of: Uuid}
+  - {name: org.shared.SkillId, kind: newtype, of: Uuid}
+  - {name: org.shared.ProficiencyId, kind: newtype, of: Uuid}
+  - {name: org.shared.RequirementId, kind: newtype, of: Uuid}
+
+  # 4 authority
+  - {name: org.shared.DecisionClassId, kind: newtype, of: Uuid}
+  - {name: org.shared.DecisionRightId, kind: newtype, of: Uuid}
+  - {name: org.shared.DecisionId, kind: newtype, of: Uuid}
+  - {name: org.shared.DelegationId, kind: newtype, of: Uuid}
+  - {name: org.shared.PolicyId, kind: newtype, of: Uuid}
+  - {name: org.shared.WaiverId, kind: newtype, of: Uuid}
+
+  # 5 value
+  - {name: org.shared.OfferingId, kind: newtype, of: Uuid}
+  - {name: org.shared.RelationshipId, kind: newtype, of: Uuid}
+  - {name: org.shared.EngagementId, kind: newtype, of: Uuid}
+
+  # 6 direction
+  - {name: org.shared.GoalId, kind: newtype, of: Uuid}
+  - {name: org.shared.KeyResultId, kind: newtype, of: Uuid}
+
+  # 7 resources
+  - {name: org.shared.AssetId, kind: newtype, of: Uuid}
+  - {name: org.shared.BudgetId, kind: newtype, of: Uuid}
+
+  # 8 work
+  - {name: org.shared.ProcessId, kind: newtype, of: Uuid}
+  - {name: org.shared.StepId, kind: newtype, of: Uuid}
+  - {name: org.shared.RequestId, kind: newtype, of: Uuid}
+  - {name: org.shared.WorkItemId, kind: newtype, of: Uuid}
+  - {name: org.shared.HandoffId, kind: newtype, of: Uuid}
+  - {name: org.shared.CommitmentId, kind: newtype, of: Uuid}
+  - {name: org.shared.AgreementId, kind: newtype, of: Uuid}
+  - {name: org.shared.TermId, kind: newtype, of: Uuid}
+
+  # 9 coordination
+  - {name: org.shared.ForumId, kind: newtype, of: Uuid}
+  - {name: org.shared.MeetingId, kind: newtype, of: Uuid}
+  - {name: org.shared.ChannelId, kind: newtype, of: Uuid}
+  - {name: org.shared.ParticipationId, kind: newtype, of: Uuid}
+  - {name: org.shared.EscalationPathId, kind: newtype, of: Uuid}
+  - {name: org.shared.EscalationId, kind: newtype, of: Uuid}
+
+  # 10 control
+  - {name: org.shared.ResponsibilityId, kind: newtype, of: Uuid}
+  - {name: org.shared.RiskId, kind: newtype, of: Uuid}
+  - {name: org.shared.ObligationId, kind: newtype, of: Uuid}
+  - {name: org.shared.ControlId, kind: newtype, of: Uuid}
+
+  # 11 composition
+  - {name: org.shared.TypeId, kind: newtype, of: Uuid}
+  - {name: org.shared.TypeRevisionId, kind: newtype, of: Uuid}
+  - {name: org.shared.DesignId, kind: newtype, of: Uuid}
+  - {name: org.shared.PartId, kind: newtype, of: Uuid}
+  - {name: org.shared.LinkId, kind: newtype, of: Uuid}
+  - {name: org.shared.DesignRevisionId, kind: newtype, of: Uuid}
+
+  # 12 evaluation
+  - {name: org.shared.KpiId, kind: newtype, of: Uuid}
+  - {name: org.shared.PostureId, kind: newtype, of: Uuid}
+  - {name: org.shared.ExperimentId, kind: newtype, of: Uuid}
+  - {name: org.shared.ProfileId, kind: newtype, of: Uuid}
+
+  # shared values
+  - {name: org.shared.Name, kind: newtype, of: String}
+
+  # The name an organization type gives to a kind of unit, role, asset, offering, work item or
+  # forum ("squad", "practice", "ward"). A block stores it and does not interpret it: the type
+  # document says which block the kind belongs to and which of the block's own dimensions it
+  # fixes. An organization of no type leaves it empty.
+  - {name: org.shared.KindName, kind: newtype, of: String}
+
+  - name: org.shared.PartyKind
+    kind: enum
+    variants: [Human, Agent, Organization, Service]
+
+  # Whether a recorded fact about a real organization was read from a record, stated by a person, concluded from
+  # other records, or is unknown. Used wherever an observed organization fills a field.
+  - name: org.shared.Attribution
+    kind: enum
+    variants: [Known, Asserted, Inferred, NotRecorded]
+
+  # Who may see a thing or receive a message.
+  - name: org.shared.Audience
+    kind: enum
+    ordered: true
+    variants: [Restricted, Internal, External]
+
+  - name: org.shared.Level
+    kind: enum
+    ordered: true
+    variants: [Low, Medium, High, Critical]
+
+  # An amount of money in millionths of one unit of `currency` (a three-letter code).
+  - name: org.shared.Money
+    kind: struct
+    fields:
+      - {name: micro_units, type: Integer}
+      - {name: currency, type: String}
+    invariants:
+      - micro_units >= 0
+
+  # A part of a whole in thousandths: 500 is one half.
+  - name: org.shared.Share
+    kind: struct
+    fields:
+      - {name: per_mille, type: Integer}
+    invariants:
+      - per_mille >= 0
+      - per_mille <= 1000
+
+  - name: org.shared.Period
+    kind: struct
+    fields:
+      - {name: starts_at, type: Timestamp}
+      - {name: ends_at, type: Timestamp}

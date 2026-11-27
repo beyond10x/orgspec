@@ -1,0 +1,439 @@
+# Experiment: a design revision, a load, a behaviour profile, faults, a search, and the result.
+# Source: design/building-blocks.md, "The blocks" § 12 evaluation and § "Simulation" (load, flow,
+# waiting, capacity, holders, the behaviour profile `orgspec-profile/1`, faults, what the search
+# may vary; "an exhaustive search and a hill-climbing search over the marked places of the
+# document"). The simulator that runs an experiment is not specified here; this domain is the
+# record of what was asked and what came out.
+domain: org.experiment
+
+summary: >-
+  An experiment simulates a committed design revision under a load, faults, a posture and a
+  behaviour profile, changes it by mutations, and searches the variants exhaustively or by hill
+  climbing. Each variant is one point of the search: the values it changed, its measured KPIs,
+  its fitness and whether it is feasible. A simulation scores waiting, load, cost and reach; it
+  does not score whether a decision was right.
+
+naming:
+  wire: experiment
+  display: Experiment
+
+types:
+  # org.shared declares no identifier for a variant; only this domain addresses it.
+  - {name: org.experiment.VariantId, kind: newtype, of: Uuid}
+
+  - name: org.experiment.SearchMode
+    kind: enum
+    variants: [Exhaustive, HillClimb]
+
+  # The faults § "Simulation" names: a holder away, a position vacant, a demand surge, a forum
+  # skipped.
+  - name: org.experiment.FaultForm
+    kind: enum
+    variants: [HolderAway, PositionVacant, DemandSurge, ForumSkipped]
+
+  # A fault on one part of the design, from an offset into the run, for a duration.
+  - name: org.experiment.Fault
+    kind: struct
+    fields:
+      - {name: form, type: org.experiment.FaultForm}
+      - {name: part, type: org.shared.Name}
+      - {name: from, type: Duration}
+      - {name: lasts, type: Duration}
+
+  # "Requests arrive per offering from its relationships."
+  # UNMAPPED: the design gives a load no unit and no shape beyond "per offering" (a rate, a mix of
+  # relationships, an arrival pattern). Taken: a number of requests per span of time for one
+  # offering part. Open question for the owner.
+  - name: org.experiment.Arrival
+    kind: struct
+    fields:
+      - {name: offering, type: org.shared.Name}
+      - {name: requests, type: Integer}
+      - {name: per, type: Duration}
+    invariants:
+      - requests >= 0
+
+  # One marked place of the design document and the values a search tries there: the seats or the
+  # agent share of a position, a forum's cadence, the unit a position sits in.
+  # UNMAPPED: how a mutation names a place on a link (who decides a class, a delegation's limit,
+  # an escalation's time limit). A link has no name in a design document. Taken: `part` names the
+  # link's from part and `field` is text the simulator reads. Open question for the owner.
+  - name: org.experiment.Mutation
+    kind: struct
+    fields:
+      - {name: part, type: Optional<org.shared.Name>}
+      - {name: field, type: String}
+      - {name: values, type: List<String>}
+
+  # One value a variant took for one mutation.
+  - name: org.experiment.Assignment
+    kind: struct
+    fields:
+      - {name: part, type: Optional<org.shared.Name>}
+      - {name: field, type: String}
+      - {name: value, type: String}
+
+  # Fitness is a weighted sum of KPIs.
+  - name: org.experiment.Weight
+    kind: struct
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: weight, type: Decimal}
+
+  # One KPI value a variant measured.
+  - name: org.experiment.Score
+    kind: struct
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: value, type: Decimal}
+
+entities:
+  # `profile_id` is the behaviour profile of the simulation (`orgspec-profile/1`: step durations
+  # per role, error and rework shares, answer delays, hours present, prices). `posture_id` is the
+  # KPI direction set (explore, scale, operate) of org.kpi.
+  # UNMAPPED: the behaviour profile has no entity and no block, so `profile_id` has no
+  # `references` relation; it is held by identifier only. Open question for the owner: where
+  # profiles live.
+  # UNMAPPED: the design says a simulation is "deterministic per seed" and names no place for the
+  # seed. Taken: not held here. Open question for the owner.
+  - name: org.experiment.Experiment
+    naming:
+      summary: One search over variants of a committed design revision, under a load, faults, a posture and a behaviour profile.
+    identity:
+      name: experiment_id
+      type: org.shared.ExperimentId
+    fields:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: profile_id, type: org.shared.ProfileId}
+      - {name: load, type: List<org.experiment.Arrival>}
+      - {name: faults, type: List<org.experiment.Fault>}
+      - {name: mutations, type: List<org.experiment.Mutation>}
+      - {name: mode, type: org.experiment.SearchMode}
+      - {name: weights, type: List<org.experiment.Weight>}
+      - name: gates
+        type: List<org.shared.KpiId>
+        summary: Gate KPIs. A variant with a non-zero value of one is not feasible.
+      - {name: planned_at, type: Timestamp}
+      - {name: failure, type: Optional<String>}
+    relations:
+      - {name: revision, kind: references, target: org.design.DesignRevision, cardinality: one, via: revision_id}
+      - {name: posture, kind: references, target: org.kpi.Posture, cardinality: one, via: posture_id}
+      - {name: gate_kpis, kind: references, target: org.kpi.Kpi, cardinality: many, via: gates}
+      - {name: variants, kind: owns, target: org.experiment.Variant, cardinality: many, via: experiment_id}
+    lifecycle:
+      initial: Planned
+      states: [Planned, Running, Done, Failed]
+      terminal: [Done, Failed]
+      transitions:
+        - {name: start, from: [Planned], to: Running}
+        - {name: finish, from: [Running], to: Done}
+        - {name: fail, from: [Planned, Running], to: Failed}
+
+  - name: org.experiment.Variant
+    naming:
+      summary: One point of a search, with the values it changed, its measured KPIs, its fitness and whether it is feasible.
+    identity:
+      name: variant_id
+      type: org.experiment.VariantId
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: values, type: List<org.experiment.Assignment>}
+      - {name: measurements, type: List<org.experiment.Score>}
+      - {name: fitness, type: Decimal}
+      - {name: feasible, type: Boolean}
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+errors:
+  - name: org.experiment.NoSuchExperiment
+    summary: No experiment has this id, and nothing changed.
+  - name: org.experiment.ExperimentStateConflict
+    summary: The experiment is not in a state that takes this command, and nothing changed.
+  - name: org.experiment.NoSuchRevision
+    summary: No design revision has this id, and nothing was planned.
+  - name: org.experiment.RevisionNotCommitted
+    summary: The design revision is a draft or superseded, so there is no committed design to simulate, and nothing was planned.
+  - name: org.experiment.NoSuchPosture
+    summary: No posture has this id, and nothing was planned.
+  - name: org.experiment.UnknownKpi
+    summary: A weight or a gate names a KPI that does not exist or is retired, or a gate names a KPI that is no gate; nothing was planned.
+  - name: org.experiment.EmptyMutation
+    summary: A mutation lists no value, and nothing was planned.
+  - name: org.experiment.NoWeights
+    summary: A hill-climbing search weighs at least one KPI, and nothing was planned.
+  - name: org.experiment.ExperimentNotRunning
+    summary: Variants are recorded only while the experiment runs, and nothing was recorded.
+  - name: org.experiment.InfeasibleVariant
+    summary: The variant is reported feasible while one of the experiment's gate KPIs measured above zero, and nothing was recorded.
+  - name: org.experiment.NoVariant
+    summary: The experiment recorded no variant, so it cannot be done; nothing changed.
+
+events:
+  - name: org.experiment.ExperimentPlanned
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: profile_id, type: org.shared.ProfileId}
+      - {name: mode, type: org.experiment.SearchMode}
+      - {name: at, type: Timestamp}
+  - name: org.experiment.ExperimentStarted
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: at, type: Timestamp}
+  - name: org.experiment.VariantRecorded
+    fields:
+      - {name: variant_id, type: org.experiment.VariantId}
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: fitness, type: Decimal}
+      - {name: feasible, type: Boolean}
+      - {name: at, type: Timestamp}
+  - name: org.experiment.ExperimentDone
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: at, type: Timestamp}
+  - name: org.experiment.ExperimentFailed
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+commands:
+  # Plan an experiment over a committed design revision.
+  - name: org.experiment.PlanExperiment
+    naming:
+      display: Plan an experiment
+    input:
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: profile_id, type: org.shared.ProfileId}
+      - {name: load, type: List<org.experiment.Arrival>}
+      - {name: faults, type: List<org.experiment.Fault>}
+      - {name: mutations, type: List<org.experiment.Mutation>}
+      - {name: mode, type: org.experiment.SearchMode}
+      - {name: weights, type: List<org.experiment.Weight>}
+      - {name: gates, type: List<org.shared.KpiId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: empty-mutation
+        when:
+          exists: {in: mutations, as: m, that: m.values.count == 0}
+        error: org.experiment.EmptyMutation
+      - name: no-weights
+        when:
+          all:
+            - mode == HillClimb
+            - weights.count == 0
+        error: org.experiment.NoWeights
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.experiment.NoSuchRevision
+      - name: no-such-posture
+        when_related: {via: input.posture_id, exists: false}
+        error: org.experiment.NoSuchPosture
+      - name: revision-not-committed
+        when_related: {via: input.revision_id, predicate: state != Committed}
+        error: org.experiment.RevisionNotCommitted
+      # UNMAPPED: UnknownKpi as a guard. A guard over the rows an input list names
+      # (`when_related: {via: input.gates, exists: false}`) is refused beside another related row,
+      # a predicate over those rows (retired, no gate) is refused, and a KPI named inside a list of
+      # structs (`weights[].kpi_id`) is no reference a guard reads. Taken: the check is the
+      # implementation's, declared as an external refusal.
+      - name: unknown-kpi
+        external: a weight or a gate names a KPI that does not exist or is retired, or a gate names a KPI that is no gate
+        error: org.experiment.UnknownKpi
+      - name: planned
+        creates: org.experiment.Experiment
+        instance: experiment_id
+        sets:
+          revision_id: input.revision_id
+          posture_id: input.posture_id
+          profile_id: input.profile_id
+          load: input.load
+          faults: input.faults
+          mutations: input.mutations
+          mode: input.mode
+          weights: input.weights
+          gates: input.gates
+          planned_at: input.at
+        emits: [org.experiment.ExperimentPlanned]
+        payload:
+          org.experiment.ExperimentPlanned:
+            experiment_id: {generated: true}
+            revision_id: input.revision_id
+            posture_id: input.posture_id
+            profile_id: input.profile_id
+            mode: input.mode
+            at: input.at
+
+  - name: org.experiment.StartExperiment
+    naming:
+      display: Start an experiment
+    input:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-experiment
+        unknown_instance: true
+        error: org.experiment.NoSuchExperiment
+      - name: started
+        moves: org.experiment.Experiment.start
+        instance: experiment_id
+        emits: [org.experiment.ExperimentStarted]
+        payload:
+          org.experiment.ExperimentStarted:
+            experiment_id: input.experiment_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.experiment.ExperimentStateConflict
+
+  # Record one point of the search. Feasibility is reported by the simulator.
+  - name: org.experiment.RecordVariant
+    naming:
+      display: Record a variant
+    input:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: values, type: List<org.experiment.Assignment>}
+      - {name: measurements, type: List<org.experiment.Score>}
+      - {name: fitness, type: Decimal}
+      - {name: feasible, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-experiment
+        when_related: {via: input.experiment_id, exists: false}
+        error: org.experiment.NoSuchExperiment
+      - name: not-running
+        when_related: {via: input.experiment_id, predicate: state != Running}
+        error: org.experiment.ExperimentNotRunning
+      # UNMAPPED: InfeasibleVariant as a guard. "Feasible only when every gate KPI measured zero"
+      # compares an input list (`measurements`) with a stored list of the related experiment
+      # (`gates`); no guard reads a related row's list against the input. Taken: the check is the
+      # implementation's, declared as an external refusal.
+      - name: infeasible
+        external: the variant is reported feasible while a gate KPI of the experiment measured above zero
+        error: org.experiment.InfeasibleVariant
+      - name: recorded
+        creates: org.experiment.Variant
+        instance: variant_id
+        sets:
+          experiment_id: input.experiment_id
+          values: input.values
+          measurements: input.measurements
+          fitness: input.fitness
+          feasible: input.feasible
+        emits: [org.experiment.VariantRecorded]
+        payload:
+          org.experiment.VariantRecorded:
+            variant_id: {generated: true}
+            experiment_id: input.experiment_id
+            fitness: input.fitness
+            feasible: input.feasible
+            at: input.at
+
+  - name: org.experiment.CompleteExperiment
+    naming:
+      display: Complete an experiment
+    input:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-experiment
+        unknown_instance: true
+        error: org.experiment.NoSuchExperiment
+      - name: no-variant
+        when_related:
+          entity: org.experiment.Variant
+          where: experiment_id == input.experiment_id
+          exists: false
+        error: org.experiment.NoVariant
+      - name: done
+        moves: org.experiment.Experiment.finish
+        instance: experiment_id
+        emits: [org.experiment.ExperimentDone]
+        payload:
+          org.experiment.ExperimentDone:
+            experiment_id: input.experiment_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.experiment.ExperimentStateConflict
+
+  - name: org.experiment.FailExperiment
+    naming:
+      display: Fail an experiment
+    input:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-experiment
+        unknown_instance: true
+        error: org.experiment.NoSuchExperiment
+      - name: failed
+        moves: org.experiment.Experiment.fail
+        instance: experiment_id
+        sets:
+          failure: input.reason
+        emits: [org.experiment.ExperimentFailed]
+        payload:
+          org.experiment.ExperimentFailed:
+            experiment_id: input.experiment_id
+            reason: input.reason
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.experiment.ExperimentStateConflict
+
+views:
+  - name: org.experiment.Experiments
+    source: org.experiment.Experiment
+    consistency: read_your_writes
+    fields:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: revision_id, type: org.shared.DesignRevisionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: profile_id, type: org.shared.ProfileId}
+      - {name: load, type: List<org.experiment.Arrival>}
+      - {name: mode, type: org.experiment.SearchMode}
+      - {name: planned_at, type: Timestamp}
+      - {name: failure, type: Optional<String>}
+      - {name: state, type: org.experiment.Experiment.State}
+
+  - name: org.experiment.Variants
+    source: org.experiment.Variant
+    consistency: read_your_writes
+    params:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+    filter: experiment_id == param.experiment_id
+    fields:
+      - {name: variant_id, type: org.experiment.VariantId}
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: values, type: List<org.experiment.Assignment>}
+      - {name: measurements, type: List<org.experiment.Score>}
+      - {name: fitness, type: Decimal}
+      - {name: feasible, type: Boolean}
+
+  # The result: the feasible variants of an experiment, highest fitness first. The first row is
+  # the best; a read with `size: 1` answers it alone.
+  - name: org.experiment.BestVariant
+    source: org.experiment.Variant
+    consistency: read_your_writes
+    params:
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: page, type: Optional<Integer>}
+      - {name: size, type: Optional<Integer>}
+    filter:
+      all:
+        - experiment_id == param.experiment_id
+        - feasible == true
+    order_by: [fitness desc, variant_id asc]
+    paging: {page: page, size: size}
+    fields:
+      - {name: variant_id, type: org.experiment.VariantId}
+      - {name: experiment_id, type: org.shared.ExperimentId}
+      - {name: values, type: List<org.experiment.Assignment>}
+      - {name: fitness, type: Decimal}

@@ -1,0 +1,15 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: Attributes named like a field of the block and like an attribute of a refined kind.
+kinds:
+  wing:
+    block: unit
+    attributes:
+      nature: { type: string }
+      floors: { type: integer }
+  gallery:
+    block: unit
+    is: wing
+    attributes:
+      floors: { type: integer }

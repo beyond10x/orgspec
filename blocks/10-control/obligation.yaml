@@ -1,0 +1,466 @@
+domain: org.obligation
+
+summary: >-
+  A duty the organization has from outside itself (a law, a contract, a standard) and the
+  controls that meet it. An obligation applies, is met or is breached, and may stop applying. A
+  control is the policy or the process by which the organization meets the obligation, with how
+  often it must show evidence. Who answers for an obligation is a row of the responsibility
+  block, not a field here.
+
+naming:
+  wire: obligation
+  display: Obligation
+
+types:
+  - name: org.obligation.Source
+    kind: union
+    tag: kind
+    variants:
+      Relationship: org.shared.RelationshipId
+      Named: String
+    naming:
+      summary: >-
+        Where the obligation comes from: a relationship of the organization (a regulator, a
+        customer, a funder), or a source named in words (a law, a standard).
+
+  - name: org.obligation.Means
+    kind: union
+    tag: kind
+    variants:
+      Policy: org.shared.PolicyId
+      Process: org.shared.ProcessId
+    naming:
+      summary: What a control consists of; a policy in force or a process that is followed.
+
+entities:
+  - name: org.obligation.Obligation
+    naming:
+      summary: >-
+        One duty from outside. Applicable from the day it is registered; then met or breached,
+        any number of times; NotApplicable once it no longer binds the organization.
+    identity:
+      name: obligation_id
+      type: org.shared.ObligationId
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: source, type: org.obligation.Source}
+      - {name: statement, type: String}
+      - name: due_every
+        type: Optional<Duration>
+        summary: How often the obligation falls due; absent for one that holds all the time.
+      - {name: registered_at, type: Timestamp}
+      - name: changed_at
+        type: Optional<Timestamp>
+        summary: When the obligation was last recorded met, breached or not applicable.
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    # UNMAPPED: what follows Met and Breached, and whether NotApplicable ends the obligation, is
+    # not stated. Taken: a met obligation can be breached and a breached one met again; every
+    # state but NotApplicable can become NotApplicable; NotApplicable is final. A met obligation
+    # that falls due again stays Met until it is breached. Open question for the owner.
+    lifecycle:
+      initial: Applicable
+      states:
+        - {name: Applicable, summary: "Binds the organization; not yet recorded met or breached."}
+        - {name: Met, summary: "Recorded as met."}
+        - {name: Breached, summary: "Recorded as not met."}
+        - {name: NotApplicable, summary: "No longer binds the organization."}
+      terminal: [NotApplicable]
+      transitions:
+        - {name: meet, from: [Applicable, Breached], to: Met}
+        - {name: breach, from: [Applicable, Met], to: Breached}
+        - {name: cease, from: [Applicable, Met, Breached], to: NotApplicable}
+
+  - name: org.obligation.Control
+    naming:
+      summary: >-
+        The policy or the process by which the organization meets one obligation, and how often
+        it must show evidence. Evidence is recorded as events; the control does not store it.
+    identity:
+      name: control_id
+      type: org.shared.ControlId
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: means, type: org.obligation.Means}
+      - {name: evidence_every, type: Duration}
+      - {name: set_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+    relations:
+      - {name: obligation, kind: references, target: org.obligation.Obligation, cardinality: one, via: obligation_id}
+    lifecycle:
+      initial: Set
+      states:
+        - {name: Set, summary: "In use; evidence is recorded for it."}
+        - {name: Retired, summary: "No longer in use; takes no evidence."}
+      terminal: [Retired]
+      transitions:
+        - {name: retire, from: [Set], to: Retired}
+
+errors:
+  - name: org.obligation.ObligationNotFound
+    summary: No obligation has this identity, and nothing changed.
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+
+  - name: org.obligation.OrganizationNotFound
+    summary: The obligation names an organization that is not on record, and nothing was registered.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.obligation.ObligationStateConflict
+    summary: The obligation is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.obligation.Obligation.State}
+
+  - name: org.obligation.ObligationNotApplicable
+    summary: The obligation no longer applies, so it takes no control, and nothing was set.
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+
+  - name: org.obligation.ControlNotFound
+    summary: No control has this identity, and nothing changed.
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+
+  - name: org.obligation.ControlStateConflict
+    summary: The control is retired, so it takes no evidence and no second retirement; nothing changed.
+    fields:
+      - {name: state, type: org.obligation.Control.State}
+
+events:
+  - name: org.obligation.ObligationRegistered
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: source, type: org.obligation.Source}
+      - {name: statement, type: String}
+      - {name: due_every, type: Optional<Duration>}
+      - {name: at, type: Timestamp}
+
+  - name: org.obligation.ObligationMet
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.obligation.ObligationBreached
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.obligation.ObligationCeased
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.obligation.ControlSet
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: means, type: org.obligation.Means}
+      - {name: evidence_every, type: Duration}
+      - {name: at, type: Timestamp}
+
+  - name: org.obligation.ControlRetired
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: at, type: Timestamp}
+
+  # One piece of evidence that a control worked. `reference` says where the evidence is kept.
+  - name: org.obligation.EvidenceRecorded
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: reference, type: String}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: RegisterObligation refuses an organization that is not on record. Whether the
+  # relationship a source names and the policy or process a control names exist is not checked:
+  # each is named through a union, which is no entity's identity (ESS-COMMAND-002), so no
+  # `when_related: {via: …}` follows it. Open question for the owner.
+  - name: org.obligation.RegisterObligation
+    naming:
+      wire: register-obligation
+      display: Register an obligation
+    input:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: source, type: org.obligation.Source}
+      - {name: statement, type: String}
+      - {name: due_every, type: Optional<Duration>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.obligation.OrganizationNotFound
+        payload:
+          org.obligation.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: registered
+        creates: org.obligation.Obligation
+        instance: obligation_id
+        sets:
+          organization_id: input.organization_id
+          source: input.source
+          statement: input.statement
+          due_every: input.due_every
+          registered_at: input.at
+        emits: [org.obligation.ObligationRegistered]
+        payload:
+          org.obligation.ObligationRegistered:
+            obligation_id: input.obligation_id
+            organization_id: input.organization_id
+            source: input.source
+            statement: input.statement
+            due_every: input.due_every
+            at: input.at
+        summary: The obligation is on record and Applicable.
+
+  - name: org.obligation.RecordObligationMet
+    naming:
+      wire: record-obligation-met
+      display: Record that an obligation is met
+    input:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-obligation
+        unknown_instance: true
+        error: org.obligation.ObligationNotFound
+        payload:
+          org.obligation.ObligationNotFound: {obligation_id: input.obligation_id}
+      - name: met
+        moves: org.obligation.Obligation.meet
+        instance: obligation_id
+        sets:
+          changed_at: input.at
+        emits: [org.obligation.ObligationMet]
+        payload:
+          org.obligation.ObligationMet:
+            obligation_id: input.obligation_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.obligation.ObligationStateConflict
+        payload:
+          org.obligation.ObligationStateConflict: {state: {subject: state}}
+
+  - name: org.obligation.RecordObligationBreached
+    naming:
+      wire: record-obligation-breached
+      display: Record that an obligation is breached
+    input:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-obligation
+        unknown_instance: true
+        error: org.obligation.ObligationNotFound
+        payload:
+          org.obligation.ObligationNotFound: {obligation_id: input.obligation_id}
+      - name: breached
+        moves: org.obligation.Obligation.breach
+        instance: obligation_id
+        sets:
+          changed_at: input.at
+        emits: [org.obligation.ObligationBreached]
+        payload:
+          org.obligation.ObligationBreached:
+            obligation_id: input.obligation_id
+            reason: input.reason
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.obligation.ObligationStateConflict
+        payload:
+          org.obligation.ObligationStateConflict: {state: {subject: state}}
+
+  - name: org.obligation.DeclareObligationNotApplicable
+    naming:
+      wire: declare-obligation-not-applicable
+      display: Declare that an obligation no longer applies
+    input:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-obligation
+        unknown_instance: true
+        error: org.obligation.ObligationNotFound
+        payload:
+          org.obligation.ObligationNotFound: {obligation_id: input.obligation_id}
+      - name: ceased
+        moves: org.obligation.Obligation.cease
+        instance: obligation_id
+        sets:
+          changed_at: input.at
+        emits: [org.obligation.ObligationCeased]
+        payload:
+          org.obligation.ObligationCeased:
+            obligation_id: input.obligation_id
+            reason: input.reason
+            at: input.at
+        summary: The obligation no longer binds the organization. Its controls stay as they are.
+      - name: wrong-state
+        wrong_state: true
+        error: org.obligation.ObligationStateConflict
+        payload:
+          org.obligation.ObligationStateConflict: {state: {subject: state}}
+
+  # A control is set only for an obligation that exists and still applies.
+  - name: org.obligation.SetControl
+    naming:
+      wire: set-control
+      display: Set a control for an obligation
+    input:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: means, type: org.obligation.Means}
+      - {name: evidence_every, type: Duration}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-obligation
+        when_related: {via: input.obligation_id, exists: false}
+        error: org.obligation.ObligationNotFound
+        payload:
+          org.obligation.ObligationNotFound: {obligation_id: input.obligation_id}
+      - name: not-applicable
+        when_related: {via: input.obligation_id, predicate: state == NotApplicable}
+        error: org.obligation.ObligationNotApplicable
+        payload:
+          org.obligation.ObligationNotApplicable: {obligation_id: input.obligation_id}
+      - name: set
+        creates: org.obligation.Control
+        instance: control_id
+        sets:
+          obligation_id: input.obligation_id
+          means: input.means
+          evidence_every: input.evidence_every
+          set_at: input.at
+        emits: [org.obligation.ControlSet]
+        payload:
+          org.obligation.ControlSet:
+            control_id: input.control_id
+            obligation_id: input.obligation_id
+            means: input.means
+            evidence_every: input.evidence_every
+            at: input.at
+        summary: The control is in use for the obligation.
+
+  - name: org.obligation.RetireControl
+    naming:
+      wire: retire-control
+      display: Retire a control
+    input:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-control
+        unknown_instance: true
+        error: org.obligation.ControlNotFound
+        payload:
+          org.obligation.ControlNotFound: {control_id: input.control_id}
+      - name: retired
+        moves: org.obligation.Control.retire
+        instance: control_id
+        sets:
+          retired_at: input.at
+        emits: [org.obligation.ControlRetired]
+        payload:
+          org.obligation.ControlRetired:
+            control_id: input.control_id
+            obligation_id: {subject: obligation_id}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.obligation.ControlStateConflict
+        payload:
+          org.obligation.ControlStateConflict: {state: {subject: state}}
+
+  # Evidence is an event only: the control row does not change.
+  - name: org.obligation.RecordEvidence
+    naming:
+      wire: record-evidence
+      display: Record evidence for a control
+    input:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: reference, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-control
+        unknown_instance: true
+        error: org.obligation.ControlNotFound
+        payload:
+          org.obligation.ControlNotFound: {control_id: input.control_id}
+      - name: retired
+        when_subject:
+          predicate: state == Retired
+        error: org.obligation.ControlStateConflict
+        payload:
+          org.obligation.ControlStateConflict: {state: {subject: state}}
+      - name: recorded
+        updates: org.obligation.Control
+        instance: control_id
+        emits: [org.obligation.EvidenceRecorded]
+        payload:
+          org.obligation.EvidenceRecorded:
+            control_id: input.control_id
+            obligation_id: {subject: obligation_id}
+            reference: input.reference
+            at: input.at
+        summary: The evidence is on record as an event.
+
+views:
+  - name: org.obligation.Obligations
+    source: org.obligation.Obligation
+    consistency: read_your_writes
+    fields:
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: source, type: org.obligation.Source}
+      - {name: statement, type: String}
+      - {name: due_every, type: Optional<Duration>}
+      - {name: registered_at, type: Timestamp}
+      - {name: changed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.obligation.Obligation.State}
+    naming:
+      wire: obligations
+      display: Obligations
+
+  - name: org.obligation.Controls
+    source: org.obligation.Control
+    consistency: read_your_writes
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: means, type: org.obligation.Means}
+      - {name: evidence_every, type: Duration}
+      - {name: set_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.obligation.Control.State}
+    naming:
+      wire: controls
+      display: Controls
+
+  # The controls in use for one obligation. No row: the obligation has no control.
+  - name: org.obligation.ControlsOfObligation
+    source: org.obligation.Control
+    consistency: read_your_writes
+    params:
+      - {name: obligation_id, type: org.shared.ObligationId}
+    filter:
+      all:
+        - obligation_id == param.obligation_id
+        - state == Set
+    fields:
+      - {name: control_id, type: org.shared.ControlId}
+      - {name: obligation_id, type: org.shared.ObligationId}
+      - {name: means, type: org.obligation.Means}
+      - {name: evidence_every, type: Duration}
+      - {name: set_at, type: Timestamp}
+    naming:
+      wire: controls-of-obligation
+      display: Controls in use for an obligation

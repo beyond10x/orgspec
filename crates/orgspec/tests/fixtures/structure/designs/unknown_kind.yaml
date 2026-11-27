@@ -1,0 +1,11 @@
+format: orgspec-organization/1
+organization: bakery
+origin: invented
+parts:
+  bakery:  { block: organization }
+  board:   { block: unit, nature: governing, in: bakery }
+  kitchen: { block: unit, kind: galley, in: bakery, burners: 4 }
+  baker:   { block: role }
+  head:    { block: position, in: kitchen, role: baker }
+links:
+  - { from: head, to: board, carries: reports_to }

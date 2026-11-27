@@ -1,0 +1,9 @@
+format: orgspec-type/1
+type: lower
+origin: invented
+rules:
+  - id: one_board
+    summary: At least one governing unit.
+    rule: parts
+    match: { block: unit, nature: governing }
+    min: 1

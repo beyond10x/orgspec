@@ -1,0 +1,105 @@
+format: orgspec-type/1
+type: regulated
+origin: invented
+extends: [base]
+summary: An organization that answers to a regulator and must show that duties are separated.
+
+links:
+  proposes:
+    summary: The part prepares a decision of the class.
+  approves:
+    summary: The part must agree before a decision of the class takes effect.
+
+kinds:
+  compliance_officer:
+    block: role
+    summary: Watches that the obligations are met and reports to a governing unit.
+  controlled:
+    block: decision_class
+    summary: A class of decisions that needs a proposer and a different approver.
+  register:
+    block: asset
+    class: information
+    summary: A record the organization must keep and be able to show.
+    attributes:
+      retention: { type: duration, required: true }
+
+rules:
+  - id: regulator_named
+    summary: The design names at least one regulator.
+    rule: parts
+    match: { block: relationship, tie: regulator }
+    min: 1
+
+  - id: obligation_stated
+    summary: The design states at least one obligation.
+    rule: parts
+    match: { block: obligation }
+    min: 1
+
+  - id: obligation_has_one_accountable
+    summary: Every obligation has one accountable position.
+    rule: links
+    each: { block: obligation }
+    carries: accountable
+    direction: in
+    min: 1
+    max: 1
+
+  - id: risk_has_one_accountable
+    summary: Every risk has one accountable position.
+    rule: links
+    each: { block: risk }
+    carries: accountable
+    direction: in
+    min: 1
+    max: 1
+
+  - id: controlled_class_has_proposer
+    summary: Every controlled decision class has a part that proposes.
+    rule: links
+    each: { block: decision_class, kind: controlled }
+    carries: proposes
+    direction: in
+    min: 1
+
+  - id: controlled_class_has_approver
+    summary: Every controlled decision class has a part that approves.
+    rule: links
+    each: { block: decision_class, kind: controlled }
+    carries: approves
+    direction: in
+    min: 1
+
+  - id: proposer_does_not_approve
+    summary: No part both proposes and approves decisions of one class.
+    rule: separate
+    carries: [proposes, approves]
+    to: { block: decision_class }
+
+  - id: compliance_officer_seated
+    summary: At least one position plays a compliance officer role.
+    rule: parts
+    match: { block: position, role_kind: compliance_officer }
+    min: 1
+
+  - id: compliance_officer_is_human
+    summary: A compliance officer position is held by humans.
+    rule: value
+    each: { block: position, role_kind: compliance_officer }
+    field: held_by
+    one_of: [human]
+
+kpis:
+  - id: obligations_with_control_share
+    block: obligation
+    measures: completeness
+    unit: share
+    summary: Share of obligations met by at least one control with current evidence.
+    direction: higher
+  - id: controlled_decisions_without_approval
+    block: decision_class
+    measures: correctness
+    unit: count
+    summary: Decisions of a controlled class that took effect without a recorded approval.
+    direction: lower

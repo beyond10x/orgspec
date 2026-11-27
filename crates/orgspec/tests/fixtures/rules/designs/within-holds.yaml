@@ -1,0 +1,18 @@
+format: orgspec-organization/1
+organization: library
+type: local
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  stacks:    { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  aide:      { block: position, in: desk, role: librarian }
+  stacker:   { block: position, in: stacks, role: librarian }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: aide, to: head, carries: stands_in }
+  - { from: stacker, to: head, carries: borrows_from }
+  - { from: stacker, to: board, carries: refers_to }

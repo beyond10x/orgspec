@@ -1,0 +1,58 @@
+format: orgspec-organization/1
+organization: town-office
+type: regulated
+origin: invented
+summary: The residents' office of a small town, under a council and a supervising state office.
+
+parts:
+  town:              { block: organization, form: public_body, purpose: "Give residents the permits and papers the law entitles them to." }
+  council:           { block: unit, nature: governing, in: town }
+  office:            { block: unit, nature: line, basis: function, in: town }
+  audit:             { block: unit, nature: line, basis: function, in: town }
+  head_role:         { block: role, purpose: "Runs the office and answers to the council." }
+  clerk_role:        { block: role, purpose: "Takes requests and prepares decisions." }
+  treasurer_role:    { block: role, purpose: "Releases payments." }
+  auditor_role:      { block: role, kind: compliance_officer }
+  office_head:       { block: position, in: office, role: head_role }
+  clerk:             { block: position, in: office, role: clerk_role, seats: 6 }
+  treasurer:         { block: position, in: office, role: treasurer_role }
+  auditor:           { block: position, in: audit, role: auditor_role }
+  permits:           { block: offering, audience: external }
+  residents:         { block: relationship, tie: beneficiary }
+  state_office:      { block: relationship, tie: regulator }
+  resident_register: { block: asset, kind: register, retention: 1560w, criticality: high }
+  permit_decision:   { block: decision_class, kind: controlled }
+  payment:           { block: decision_class, kind: controlled }
+  budget_plan:       { block: decision_class }
+  data_protection:   { block: obligation, source: law, about: resident_register }
+  procurement_rules: { block: obligation, source: law, about: office }
+  wrong_permit:      { block: risk, about: permits, likelihood: medium, impact: high, treatment: reduce }
+  office_budget:     { block: budget, amount: 900000, currency: EUR, period: 52w, for: office }
+  session:           { block: forum, convenes: council, every: 4w }
+
+links:
+  - { from: office_head, to: council,     carries: reports_to }
+  - { from: auditor,     to: council,     carries: reports_to }
+  - { from: clerk,       to: office_head, carries: reports_to }
+  - { from: treasurer,   to: office_head, carries: reports_to }
+  - { from: office_head, to: permits,           carries: accountable }
+  - { from: office_head, to: resident_register, carries: accountable }
+  - { from: office_head, to: office_budget,     carries: accountable }
+  - { from: office_head, to: wrong_permit,      carries: accountable }
+  - { from: auditor,     to: data_protection,   carries: accountable }
+  - { from: auditor,     to: procurement_rules, carries: accountable }
+  - { from: clerk,       to: permits,           carries: responsible }
+  - { from: residents,   to: permits,           carries: demand }
+  - { from: auditor,     to: state_office,      carries: serves }
+  - { from: clerk,       to: permit_decision, carries: proposes }
+  - { from: office_head, to: permit_decision, carries: approves }
+  - { from: office_head, to: permit_decision, carries: decides, mode: sole }
+  - { from: clerk,       to: payment,         carries: proposes }
+  - { from: treasurer,   to: payment,         carries: approves }
+  - { from: treasurer,   to: payment,         carries: decides, mode: sole }
+  - { from: council,     to: budget_plan,     carries: decides, mode: majority }
+  - { from: clerk,       to: office_head,     carries: escalates, after: 2d }
+  - { from: office_budget, to: office,        carries: funds }
+  - { from: session,     to: budget_plan,     carries: settles }
+
+border: [clerk]

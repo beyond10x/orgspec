@@ -1,0 +1,14 @@
+format: orgspec-type/1
+type: lower
+origin: invented
+summary: The type `full` extends.
+kinds:
+  room: { block: unit, nature: line, attributes: { seats: { type: integer } } }
+  room_lead: { block: role }
+rules:
+  - id: rooms_are_few
+    summary: At most twelve rooms. Counted, not a gate.
+    gate: false
+    rule: parts
+    match: { kind: room }
+    max: 12

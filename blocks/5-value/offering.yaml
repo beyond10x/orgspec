@@ -1,0 +1,284 @@
+domain: org.offering
+
+summary: >-
+  What the organization gives: a product, a service or a programme, to a party outside it or to
+  its own units. An offering is proposed, offered and withdrawn. It names its organization and
+  nothing above it: who takes it is a row of `org.relationship`, who answers for it is a row of
+  `org.responsibility`.
+
+naming:
+  wire: offering
+  display: Offering
+
+entities:
+  - name: org.offering.Offering
+    naming:
+      summary: >-
+        One thing the organization gives. `internal` says that its takers are units of the
+        organization itself. A withdrawn offering stays on record, because engagements, goals
+        and requests name it.
+    identity:
+      name: offering_id
+      type: org.shared.OfferingId
+    fields:
+      # UNMAPPED: ProposeOffering refuses an organization that is not on record and does not
+      # read its state. Open question for the owner: whether a Dissolved organization, or one
+      # still Forming or Suspended, takes a new offering.
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: summary
+        type: String
+      - name: internal
+        type: Boolean
+      - name: kind
+        type: Optional<org.shared.KindName>
+        summary: The kind an organization type gives it. Stored, never read by a guard.
+      - name: offered_at
+        type: Optional<Timestamp>
+      - name: withdrawn_at
+        type: Optional<Timestamp>
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    lifecycle:
+      initial: Proposed
+      states: [Proposed, Offered, Withdrawn]
+      terminal: [Withdrawn]
+      transitions:
+        - name: offer
+          from: [Proposed]
+          to: Offered
+        # UNMAPPED: the lifecycle is Proposed → Offered → Withdrawn with no other exit from
+        # Proposed, so an offering that is proposed and never offered stays Proposed. Open
+        # question for the owner: add Proposed to `from` here.
+        - name: withdraw
+          from: [Offered]
+          to: Withdrawn
+
+errors:
+  - name: org.offering.OfferingExists
+    summary: An offering of this identifier exists, and nothing was proposed.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.offering.NoSuchOffering
+    summary: No offering of this identifier was proposed.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.offering.UnknownOrganization
+    summary: The offering names an organization that is not on record, and nothing was proposed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.offering.OfferingStateConflict
+    summary: The offering is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.offering.Offering.State}
+
+  - name: org.offering.OfferingIsWithdrawn
+    summary: A withdrawn offering is not described again, and nothing changed.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+events:
+  - name: org.offering.OfferingProposed
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: internal, type: Boolean}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.offering.OfferingOffered
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+
+  - name: org.offering.OfferingDescribed
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.offering.OfferingWithdrawn
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.offering.ProposeOffering
+    naming:
+      wire: propose-offering
+      display: Propose an offering
+    input:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: internal, type: Boolean}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-proposed
+        existing_instance: true
+        error: org.offering.OfferingExists
+        payload:
+          org.offering.OfferingExists: {offering_id: input.offering_id}
+      - name: unknown-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.offering.UnknownOrganization
+        payload:
+          org.offering.UnknownOrganization: {organization_id: input.organization_id}
+      - name: proposed
+        creates: org.offering.Offering
+        instance: offering_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          summary: input.summary
+          internal: input.internal
+          kind: input.kind
+        emits: [org.offering.OfferingProposed]
+        payload:
+          org.offering.OfferingProposed:
+            offering_id: input.offering_id
+            organization_id: input.organization_id
+            name: input.name
+            summary: input.summary
+            internal: input.internal
+            kind: input.kind
+            at: input.at
+        summary: The offering is Proposed; nobody takes it yet.
+
+  - name: org.offering.StartOffering
+    naming:
+      wire: start-offering
+      display: Start offering it
+    input:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-offering
+        unknown_instance: true
+        error: org.offering.NoSuchOffering
+        payload:
+          org.offering.NoSuchOffering: {offering_id: input.offering_id}
+      - name: offered
+        moves: org.offering.Offering.offer
+        instance: offering_id
+        sets:
+          offered_at: input.at
+        emits: [org.offering.OfferingOffered]
+        payload:
+          org.offering.OfferingOffered:
+            offering_id: input.offering_id
+            at: input.at
+        summary: The offering is Offered and can be taken.
+      - name: wrong-state
+        wrong_state: true
+        error: org.offering.OfferingStateConflict
+        payload:
+          org.offering.OfferingStateConflict: {state: {subject: state}}
+
+  - name: org.offering.DescribeOffering
+    naming:
+      wire: describe-offering
+      display: Change the name and summary of an offering
+    input:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-offering
+        unknown_instance: true
+        error: org.offering.NoSuchOffering
+        payload:
+          org.offering.NoSuchOffering: {offering_id: input.offering_id}
+      - name: withdrawn
+        when_subject: {predicate: state == Withdrawn}
+        error: org.offering.OfferingIsWithdrawn
+        payload:
+          org.offering.OfferingIsWithdrawn: {offering_id: input.offering_id}
+      - name: described
+        updates: org.offering.Offering
+        instance: offering_id
+        sets:
+          name: input.name
+          summary: input.summary
+        emits: [org.offering.OfferingDescribed]
+        payload:
+          org.offering.OfferingDescribed:
+            offering_id: input.offering_id
+            name: input.name
+            summary: input.summary
+            at: input.at
+
+  - name: org.offering.WithdrawOffering
+    naming:
+      wire: withdraw-offering
+      display: Withdraw an offering
+    input:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-offering
+        unknown_instance: true
+        error: org.offering.NoSuchOffering
+        payload:
+          org.offering.NoSuchOffering: {offering_id: input.offering_id}
+      - name: withdrawn
+        moves: org.offering.Offering.withdraw
+        instance: offering_id
+        sets:
+          withdrawn_at: input.at
+        emits: [org.offering.OfferingWithdrawn]
+        payload:
+          org.offering.OfferingWithdrawn:
+            offering_id: input.offering_id
+            at: input.at
+        summary: The offering is no longer given; what named it keeps naming it.
+      - name: wrong-state
+        wrong_state: true
+        error: org.offering.OfferingStateConflict
+        payload:
+          org.offering.OfferingStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.offering.Offerings
+    source: org.offering.Offering
+    consistency: read_your_writes
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: internal, type: Boolean}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: offered_at, type: Optional<Timestamp>}
+      - {name: withdrawn_at, type: Optional<Timestamp>}
+      - {name: state, type: org.offering.Offering.State}
+    naming:
+      wire: offerings
+      display: Offerings
+
+  - name: org.offering.OfferingsOfOrganization
+    source: org.offering.Offering
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter: organization_id == param.organization_id
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: name, type: org.shared.Name}
+      - {name: internal, type: Boolean}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: state, type: org.offering.Offering.State}
+    naming:
+      wire: offerings-of-organization
+      display: Offerings of an organization

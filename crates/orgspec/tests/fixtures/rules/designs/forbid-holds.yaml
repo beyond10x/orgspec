@@ -1,0 +1,19 @@
+format: orgspec-organization/1
+organization: library
+type: guarded
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  sorter:    { block: position, in: desk, role: librarian, held_by: agent }
+  shelving:  { block: decision_class }
+  disposal:  { block: decision_class, reversible: false }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: sorter, to: head, carries: reports_to }
+  - { from: sorter, to: head, carries: answers_to }
+  - { from: sorter, to: shelving, carries: decides }
+  - { from: head, to: disposal, carries: decides }

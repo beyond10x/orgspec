@@ -1,0 +1,105 @@
+# The bakery design put under a revision of an invented type `craft-shop`: refused while that
+# type revision is a draft or does not exist, taken once it is published, and the design revision
+# commits under it.
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-under-type
+summary: A design revision is put under a published type revision; a draft or unknown type revision is refused.
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+  - instance: shop-type
+    entity: org.type.TypeRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.type.DeclareType
+    input:
+      type_id: 00000000-0000-4000-8000-000000000104
+      name: craft-shop
+      summary: A shop that makes what it sells.
+      at: 2026-11-27T09:00:00Z
+    outcome: declared
+  - at: 2026-11-27T09:00:01Z
+    command: org.type.OpenRevision
+    input: {type_id: 00000000-0000-4000-8000-000000000104, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: shop-type, event: org.type.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:02Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:03Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+
+  - at: 2026-11-27T09:00:04Z
+    command: org.design.PutUnderType
+    input:
+      revision_id: {$instance: rev}
+      type_revision_id: {$instance: shop-type}
+      at: 2026-11-27T09:00:04Z
+    outcome: type-revision-is-draft
+    error:
+      name: org.design.TypeRevisionNotPublished
+    no_events: [org.design.RevisionPutUnderType]
+  - at: 2026-11-27T09:00:05Z
+    command: org.design.PutUnderType
+    input:
+      revision_id: {$instance: rev}
+      type_revision_id: 00000000-0000-4000-8000-000000000199
+      at: 2026-11-27T09:00:05Z
+    outcome: no-such-type-revision
+    error:
+      name: org.design.NoSuchTypeRevision
+    no_events: [org.design.RevisionPutUnderType]
+
+  - at: 2026-11-27T09:00:06Z
+    command: org.type.PublishRevision
+    input: {revision_id: {$instance: shop-type}, at: 2026-11-27T09:00:06Z}
+    outcome: published
+  - at: 2026-11-27T09:00:07Z
+    command: org.design.PutUnderType
+    input:
+      revision_id: {$instance: rev}
+      type_revision_id: {$instance: shop-type}
+      at: 2026-11-27T09:00:07Z
+    outcome: put
+
+  - at: 2026-11-27T09:00:08Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000001
+      revision_id: {$instance: rev}
+      name: bakery
+      block: Organization
+      dimensions: []
+      at: 2026-11-27T09:00:08Z
+    outcome: added
+  - at: 2026-11-27T09:00:09Z
+    command: org.design.CommitRevision
+    input: {revision_id: {$instance: rev}, at: 2026-11-27T09:00:09Z}
+    outcome: committed
+  - at: 2026-11-27T09:00:10Z
+    command: org.design.PutUnderType
+    input:
+      revision_id: {$instance: rev}
+      type_revision_id: {$instance: shop-type}
+      at: 2026-11-27T09:00:10Z
+    outcome: revision-not-draft
+    error:
+      name: org.design.RevisionNotDraft
+    no_events: [org.design.RevisionPutUnderType]
+
+assert:
+  - view: org.design.Revisions
+    contains:
+      revision_id: {$instance: rev}
+      under: [{$instance: shop-type}]
+      state: Committed

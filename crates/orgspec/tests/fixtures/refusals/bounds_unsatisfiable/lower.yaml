@@ -1,0 +1,28 @@
+format: orgspec-type/1
+type: lower
+origin: invented
+rules:
+  - id: two_boards
+    summary: At least two governing units.
+    rule: parts
+    match: { block: unit, nature: governing }
+    min: 2
+  - id: head_has_deputy
+    summary: At least one position reports to a head.
+    rule: links
+    each: { block: position, role: head }
+    carries: reports_to
+    direction: in
+    min: 1
+  - id: forum_fortnightly_at_least
+    summary: A forum meets every two weeks or less often.
+    rule: value
+    each: { block: forum }
+    field: every
+    min: 2w
+  - id: unit_basis_function
+    summary: A unit is grouped by function or offering.
+    rule: value
+    each: { block: unit }
+    field: basis
+    one_of: [function, offering]

@@ -1,0 +1,1147 @@
+domain: org.decision
+
+summary: >-
+  Who may decide what, and what was decided. A decision class names a kind of decision: spend,
+  hire, price, release. A decision right gives one class, in one unit's scope, to a position or
+  to a body, in a mode. A decision is the record of one question: its options, the one chosen,
+  who decided, the right it was taken under and the decision it supersedes. Default deny: without
+  a right in force there is no decision. A taken decision is never edited; a new one supersedes
+  it.
+
+naming:
+  wire: decision
+  display: Decision
+
+types:
+  - name: org.decision.Mode
+    kind: enum
+    variants: [Sole, Advice, Consent, Majority, Unanimous]
+    naming:
+      summary: >-
+        How the decider decides. Sole: alone. Advice: alone, after asking those consulted.
+        Consent: unless one of those consulted objects. Majority and Unanimous: by the votes of a
+        body.
+
+  # UNMAPPED: the design has the decider as a union, Position(PositionId) | Body(UnitId). A guard
+  # cannot read into a union (`unobservable_fact`: "cannot select `Position` from" the union) or
+  # compare two union values (`type_mismatch`, ESS-COMMAND-002: "operator `!=` does not admit"
+  # an aggregate), so the rule "a decision by a position without the right is refused" could not
+  # be written over it. Taken instead: a struct of two optional identifiers, which a guard reads
+  # as `decider.position`. That exactly one of the two is present is a guard of
+  # ProposeDecisionRight (`DeciderNotExactlyOne`), the only command that writes a decider: as an
+  # invariant of the struct it left synthesis without one valid value to send.
+  - name: org.decision.Decider
+    kind: struct
+    fields:
+      - name: position
+        type: Optional<org.shared.PositionId>
+      - name: body
+        type: Optional<org.shared.UnitId>
+    naming:
+      summary: >-
+        Who holds a decision right: one position, or a body, which is a unit (a board, a
+        committee) that decides together. Exactly one of the two is present.
+
+entities:
+  - name: org.decision.DecisionClass
+    naming:
+      summary: >-
+        A kind of decision the organization takes again and again: spend, hire, price, release.
+        `reversible` says whether a decision of this class can be undone at a cost the
+        organization accepts; only a reversible class lets a decision name a default option.
+        Declared until retired.
+    identity:
+      name: class_id
+      type: org.shared.DecisionClassId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: reversible
+        type: Boolean
+      - name: declared_at
+        type: Timestamp
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+    lifecycle:
+      initial: Declared
+      states:
+        - {name: Declared, summary: "Rights and decisions may name the class."}
+        - {name: Retired, summary: "Stays on record; takes no new right and no new decision."}
+      terminal: [Retired]
+      transitions:
+        - {name: retire, from: [Declared], to: Retired}
+
+  - name: org.decision.DecisionRight
+    naming:
+      summary: >-
+        One class of decisions, in one unit's scope, belongs to one decider in one mode. The
+        decider is a position or a body, never a party, so the right survives a change of
+        holder. `consulted` and `informed` are the positions asked before and told after.
+        Proposed until it enters force, InForce until revoked.
+    identity:
+      name: right_id
+      type: org.shared.DecisionRightId
+    fields:
+      - name: class_id
+        type: org.shared.DecisionClassId
+      - name: class_reversible
+        type: Boolean
+        naming:
+          summary: >-
+            The `reversible` of the class, stated when the right is proposed and held equal to
+            the class there, so that opening a decision reads it from the right.
+      - name: scope
+        type: org.shared.UnitId
+      - name: decider
+        type: org.decision.Decider
+      - name: mode
+        type: org.decision.Mode
+      - name: consulted
+        type: List<org.shared.PositionId>
+      - name: informed
+        type: List<org.shared.PositionId>
+      - name: proposed_at
+        type: Timestamp
+      - name: in_force_since
+        type: Optional<Timestamp>
+      - name: revoked_at
+        type: Optional<Timestamp>
+    relations:
+      - name: class
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: one
+        via: class_id
+      - name: scope_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: scope
+      - name: consulted_positions
+        kind: references
+        target: org.position.Position
+        cardinality: many
+        via: consulted
+      - name: informed_positions
+        kind: references
+        target: org.position.Position
+        cardinality: many
+        via: informed
+    lifecycle:
+      initial: Proposed
+      states:
+        - {name: Proposed, summary: "Written down; nobody decides under it yet."}
+        - {name: InForce, summary: "Decisions of the class in the scope are taken under it."}
+        - {name: Revoked, summary: "No longer a right. Decisions taken under it stand."}
+      terminal: [Revoked]
+      transitions:
+        - {name: enact, from: [Proposed], to: InForce}
+        - name: revoke
+          from: [Proposed, InForce]
+          to: Revoked
+          summary: A proposal that is dropped is revoked the same way as a right in force.
+
+  - name: org.decision.Decision
+    naming:
+      summary: >-
+        One question and its answer. Open until it is decided, taken on its default or
+        withdrawn. Decided and TakenOnDefault are the two ways a decision is taken; a taken
+        decision keeps every field for good and becomes Superseded when a decision that names it
+        is taken.
+    identity:
+      name: decision_id
+      type: org.shared.DecisionId
+    fields:
+      - name: class_id
+        type: org.shared.DecisionClassId
+      - name: scope
+        type: org.shared.UnitId
+      - name: right_id
+        type: org.shared.DecisionRightId
+        summary: The right the decision was opened under.
+      - name: question
+        type: String
+      - name: options
+        type: List<String>
+      - name: default_option
+        type: Optional<String>
+        summary: The option taken when nobody decides by `due`. Only on a reversible class.
+      - name: due
+        type: Optional<Timestamp>
+      - name: chosen
+        type: Optional<String>
+      - name: decided_by
+        type: Optional<org.shared.PositionId>
+        summary: The position that decided. Absent while open and on a decision taken on default.
+      - name: supersedes
+        type: Optional<org.shared.DecisionId>
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+    relations:
+      - name: class
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: one
+        via: class_id
+      - name: right
+        kind: references
+        target: org.decision.DecisionRight
+        cardinality: one
+        via: right_id
+      - name: superseded
+        kind: references
+        target: org.decision.Decision
+        cardinality: one
+        via: supersedes
+      - name: scope_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: scope
+      - name: deciding_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: decided_by
+    lifecycle:
+      initial: Open
+      states:
+        - {name: Open, summary: "Asked and not yet answered."}
+        - {name: Decided, summary: "A decider chose an option."}
+        - {name: TakenOnDefault, summary: "Nobody decided by the due instant; the default stands."}
+        - {name: Withdrawn, summary: "The question was dropped without an answer."}
+        - {name: Superseded, summary: "A later decision that names this one was taken."}
+      terminal: [Withdrawn, Superseded]
+      transitions:
+        - {name: decide, from: [Open], to: Decided}
+        - {name: take_default, from: [Open], to: TakenOnDefault}
+        - {name: withdraw, from: [Open], to: Withdrawn}
+        - {name: supersede, from: [Decided, TakenOnDefault], to: Superseded}
+
+errors:
+  - name: org.decision.OrganizationNotFound
+    summary: No organization of this identity is on record, and no decision class was declared.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.decision.ScopeUnitNotFound
+    summary: No unit of this identity is on record, and no decision right was written.
+    fields:
+      - {name: scope, type: org.shared.UnitId}
+
+  - name: org.decision.DecisionClassNotFound
+    summary: No decision class of this identity is declared, and nothing changed.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.decision.RetiredDecisionClass
+    summary: The decision class is retired, so it takes no change, right or decision.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.decision.DecisionRightNotFound
+    summary: No decision right of this identity is on record, and nothing changed.
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+
+  - name: org.decision.DecisionRightStateConflict
+    summary: The decision right is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: state, type: org.decision.DecisionRight.State}
+
+  - name: org.decision.NoDecisionRight
+    summary: >-
+      Default deny. The named right is not on record or is not in force. Nothing was recorded.
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+
+  - name: org.decision.ReversibilityMismatch
+    summary: >-
+      The command states another `reversible` than the class has. The right carries a copy of it,
+      and a wrong copy would let a default option onto an irreversible class.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.decision.DeciderNotExactlyOne
+    summary: A right has one decider, a position or a body. The command named both or neither.
+    fields: []
+
+  - name: org.decision.NotTheDecider
+    summary: >-
+      The right belongs to a position, and the position that tried to decide is another one.
+      Nothing changed.
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: decided_by, type: org.shared.PositionId}
+
+  - name: org.decision.DefaultOnIrreversibleClass
+    summary: >-
+      A default option is taken without anybody deciding, so only a reversible class allows
+      one. The class is not reversible; nothing was recorded.
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+
+  - name: org.decision.NoOptions
+    summary: A decision chooses among options, and the command gave none.
+    fields: []
+
+  - name: org.decision.DefaultNotAnOption
+    summary: The default option is not one of the decision's options.
+    fields:
+      - {name: default_option, type: Optional<String>}
+
+  - name: org.decision.DefaultWithoutDue
+    summary: A default option is taken at the due instant, and the command gave none.
+    fields: []
+
+  - name: org.decision.ChosenNotAnOption
+    summary: The chosen option is not one of the decision's options. Nothing changed.
+    fields:
+      - {name: chosen, type: String}
+
+  - name: org.decision.NoDefaultOption
+    summary: The decision names no default option, so it cannot be taken on default.
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+
+  - name: org.decision.DecisionNotDue
+    summary: The decision's due instant has not passed, so its default is not taken yet.
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: due, type: Optional<Timestamp>}
+
+  - name: org.decision.SupersededDecisionNotFound
+    summary: The command names a decision to supersede that is not on record.
+    fields:
+      - {name: supersedes, type: org.shared.DecisionId}
+
+  - name: org.decision.SupersededDecisionNotTaken
+    summary: >-
+      Only a taken decision is superseded. The named one is open, withdrawn or already
+      superseded.
+    fields:
+      - {name: supersedes, type: org.shared.DecisionId}
+
+  - name: org.decision.DecisionNotFound
+    summary: No decision of this identity is on record, and nothing changed.
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+
+  - name: org.decision.DecisionStateConflict
+    summary: >-
+      The decision is not Open. A taken decision is never edited: open a new decision that
+      supersedes it.
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: state, type: org.decision.Decision.State}
+
+events:
+  - name: org.decision.DecisionClassDeclared
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: reversible, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionClassRetired
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionRightProposed
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: decider, type: org.decision.Decider}
+      - {name: mode, type: org.decision.Mode}
+      - {name: consulted, type: List<org.shared.PositionId>}
+      - {name: informed, type: List<org.shared.PositionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionRightEnacted
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionRightRevoked
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionOpened
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: question, type: String}
+      - {name: options, type: List<String>}
+      - {name: default_option, type: Optional<String>}
+      - {name: due, type: Optional<Timestamp>}
+      - {name: at, type: Timestamp}
+  - name: org.decision.SupersessionOpened
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: supersedes, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+
+
+  # The wait from DecisionOpened to this event is the decision latency.
+  - name: org.decision.DecisionTaken
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: chosen, type: String}
+      - {name: decided_by, type: org.shared.PositionId}
+      - {name: supersedes, type: Optional<org.shared.DecisionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionTakenOnDefault
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: chosen, type: Optional<String>}
+      - {name: supersedes, type: Optional<org.shared.DecisionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.decision.DecisionWithdrawn
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.decision.DeclareDecisionClass
+    naming:
+      wire: declare-decision-class
+      display: Declare a decision class
+    input:
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: reversible, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.decision.OrganizationNotFound
+        payload:
+          org.decision.OrganizationNotFound: {organization_id: input.organization_id}
+        summary: A decision class is declared for an organization on record.
+      - name: declared
+        creates: org.decision.DecisionClass
+        instance: class_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          reversible: input.reversible
+          declared_at: input.at
+        emits: [org.decision.DecisionClassDeclared]
+        payload:
+          org.decision.DecisionClassDeclared:
+            class_id: input.class_id
+            organization_id: input.organization_id
+            name: input.name
+            reversible: input.reversible
+            at: input.at
+        summary: The class exists. Nobody may decide it until a right for it is in force.
+
+  # UNMAPPED: nothing in the design says what happens to the rights of a class when it retires.
+  # They stay as they are; a retired class takes no new right and no new decision. Open question
+  # for the owner.
+  - name: org.decision.RetireDecisionClass
+    naming:
+      wire: retire-decision-class
+      display: Retire a decision class
+    input:
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-class
+        unknown_instance: true
+        error: org.decision.DecisionClassNotFound
+        payload:
+          org.decision.DecisionClassNotFound: {class_id: input.class_id}
+      - name: retired
+        moves: org.decision.DecisionClass.retire
+        instance: class_id
+        sets:
+          retired_at: input.at
+        emits: [org.decision.DecisionClassRetired]
+        payload:
+          org.decision.DecisionClassRetired:
+            class_id: input.class_id
+            at: input.at
+        summary: The class takes no new right and no new decision.
+      - name: already-retired
+        wrong_state: true
+        error: org.decision.RetiredDecisionClass
+        payload:
+          org.decision.RetiredDecisionClass: {class_id: input.class_id}
+        summary: The class had already retired.
+
+  # UNMAPPED: that the deciding position or body and the consulted and informed positions exist
+  # is not checked. A guard follows an input field and not a field of a struct in the input
+  # (`via: input.decider.position` is ESS-COMMAND-001, `undeclared_reference`), and a guard over
+  # a list of references stands beside no other related row (`via: input.consulted` beside the
+  # guards on the class is ESS-COMMAND-004, `conflicting_declaration`). Taken: the scope unit
+  # is checked; the other identifiers are stored as given.
+  # UNMAPPED: who may write a right is not held here. The first right of an organization cannot
+  # be decided under a right; the consumer says which actor issues these commands.
+  - name: org.decision.ProposeDecisionRight
+    naming:
+      wire: propose-decision-right
+      display: Propose a decision right
+      summary: >-
+        Writes down that one class in one scope belongs to one decider. `class_reversible`
+        repeats the class's `reversible`; the right keeps it, and a value that differs from the
+        class is refused.
+    input:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - name: decider
+        type: org.decision.Decider
+      - {name: class_reversible, type: Boolean}
+      - {name: mode, type: org.decision.Mode}
+      - {name: consulted, type: List<org.shared.PositionId>}
+      - {name: informed, type: List<org.shared.PositionId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: decider-not-exactly-one
+        when:
+          none:
+            - all: [defined(decider.position), not defined(decider.body)]
+            - all: [defined(decider.body), not defined(decider.position)]
+        error: org.decision.DeciderNotExactlyOne
+      - name: no-such-class
+        when_related: {via: input.class_id, exists: false}
+        error: org.decision.DecisionClassNotFound
+        payload:
+          org.decision.DecisionClassNotFound: {class_id: input.class_id}
+      - name: no-such-scope
+        when_related: {via: input.scope, exists: false}
+        error: org.decision.ScopeUnitNotFound
+        payload:
+          org.decision.ScopeUnitNotFound: {scope: input.scope}
+        summary: A right is written for a unit on record.
+      - name: class-retired
+        when_related: {via: input.class_id, predicate: state == Retired}
+        error: org.decision.RetiredDecisionClass
+        payload:
+          org.decision.RetiredDecisionClass: {class_id: input.class_id}
+      - name: reversibility-mismatch
+        when_related: {via: input.class_id, predicate: reversible != input.class_reversible}
+        error: org.decision.ReversibilityMismatch
+        payload:
+          org.decision.ReversibilityMismatch: {class_id: input.class_id}
+        summary: The right would carry another reversibility than its class has.
+      - name: proposed
+        creates: org.decision.DecisionRight
+        instance: right_id
+        sets:
+          class_id: input.class_id
+          class_reversible: input.class_reversible
+          scope: input.scope
+          decider: input.decider
+          mode: input.mode
+          consulted: input.consulted
+          informed: input.informed
+          proposed_at: input.at
+        emits: [org.decision.DecisionRightProposed]
+        payload:
+          org.decision.DecisionRightProposed:
+            right_id: input.right_id
+            class_id: input.class_id
+            scope: input.scope
+            decider: input.decider
+            mode: input.mode
+            consulted: input.consulted
+            informed: input.informed
+            at: input.at
+        summary: The right is written down and Proposed.
+
+  # UNMAPPED: "one class in one scope has one decider" is not refused here. A row-set guard on
+  # the rights in force with the same class and scope (`where: class_id == subject.class_id`,
+  # `scope == subject.scope`, `state == InForce`) validates, and synthesis then refuses both the
+  # refusal and the accepting branch (ESS-SYNTH-001, "reads a subject field the steps leave
+  # undetermined"). The rule is left to the structural check `class_with_two_deciders`.
+  - name: org.decision.EnactDecisionRight
+    naming:
+      wire: enact-decision-right
+      display: Bring a decision right into force
+      summary: >-
+        From now on decisions of the class in the scope are taken under this right.
+    input:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-right
+        unknown_instance: true
+        error: org.decision.DecisionRightNotFound
+        payload:
+          org.decision.DecisionRightNotFound: {right_id: input.right_id}
+      - name: enacted
+        moves: org.decision.DecisionRight.enact
+        instance: right_id
+        sets:
+          in_force_since: input.at
+        emits: [org.decision.DecisionRightEnacted]
+        payload:
+          org.decision.DecisionRightEnacted:
+            right_id: input.right_id
+            class_id: {subject: class_id}
+            scope: {subject: scope}
+            at: input.at
+        summary: The right is InForce.
+      - name: wrong-state
+        wrong_state: true
+        error: org.decision.DecisionRightStateConflict
+        payload:
+          org.decision.DecisionRightStateConflict:
+            right_id: input.right_id
+            state: {subject: state}
+        summary: Only a proposed right enters force.
+
+  - name: org.decision.RevokeDecisionRight
+    naming:
+      wire: revoke-decision-right
+      display: Revoke a decision right
+      summary: >-
+        The right ends. Decisions already taken under it stand; an open decision under it can no
+        longer be decided or taken on default, only withdrawn.
+    input:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-right
+        unknown_instance: true
+        error: org.decision.DecisionRightNotFound
+        payload:
+          org.decision.DecisionRightNotFound: {right_id: input.right_id}
+      - name: revoked
+        moves: org.decision.DecisionRight.revoke
+        instance: right_id
+        sets:
+          revoked_at: input.at
+        emits: [org.decision.DecisionRightRevoked]
+        payload:
+          org.decision.DecisionRightRevoked:
+            right_id: input.right_id
+            class_id: {subject: class_id}
+            scope: {subject: scope}
+            at: input.at
+        summary: Nobody decides under this right any more.
+      - name: wrong-state
+        wrong_state: true
+        error: org.decision.DecisionRightStateConflict
+        payload:
+          org.decision.DecisionRightStateConflict:
+            right_id: input.right_id
+            state: {subject: state}
+        summary: The right had already been revoked.
+  # A decision is opened under one right and takes that right's class and scope. The command
+  # carries no class and no scope of its own, so a right for another class or another scope
+  # cannot be borrowed.
+  # UNMAPPED: no guard over a chain of rows (decision, its right, the right's class). The right
+  # therefore carries `class_reversible`. ProposeDecisionRight states it and is refused when it
+  # differs from the class (`ReversibilityMismatch`); no command changes `reversible` of a class,
+  # so the copy stays true. Two other forms validate and were not taken. `class_id` in this
+  # command's input, held equal to the right's class beside guards on the class row: synthesis
+  # then reaches no decision at all (ESS-SYNTH-003, "no candidate of the 4 tried satisfies
+  # `org.decision.DecisionClass` stored related row selecting this branch"). The copy written by
+  # the specification itself (`{related: {via: input.class_id, field: reversible}}`): the same
+  # refusal, over `org.decision.DecisionRight`, for every branch of this command.
+  # UNMAPPED: a retired class is not read when a decision is opened, for the same reason. A
+  # retired class takes no new right; rights already in force keep working until each is
+  # revoked, which is a consumer's process.
+  # UNMAPPED: the right's scope is one unit. That a right on a unit covers the units below it is
+  # a walk up the unit tree of org.unit, a chain of rows that no guard follows; a decision in
+  # a sub-unit names a right of that sub-unit.
+  - name: org.decision.OpenDecision
+    naming:
+      wire: open-decision
+      display: Open a decision
+      summary: >-
+        Puts one question with its options under one right. Default deny: the right must be on
+        record and in force. A default option needs a reversible class and a due instant. A
+        decision that replaces a taken one is opened with OpenSupersedingDecision.
+    input:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: question, type: String}
+      - {name: options, type: List<String>}
+      - {name: default_option, type: Optional<String>}
+      - {name: due, type: Optional<Timestamp>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-options
+        when: options.count == 0
+        error: org.decision.NoOptions
+      - name: default-not-an-option
+        when:
+          all:
+            - defined(default_option)
+            - not:
+                exists: {in: options, as: o, that: o == default_option}
+        error: org.decision.DefaultNotAnOption
+        payload:
+          org.decision.DefaultNotAnOption: {default_option: input.default_option}
+      - name: default-without-due
+        when:
+          all:
+            - defined(default_option)
+            - not defined(due)
+        error: org.decision.DefaultWithoutDue
+      - name: no-such-right
+        when_related: {via: input.right_id, exists: false}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight: {right_id: input.right_id}
+        summary: Default deny, a decision needs a right under it.
+      - name: right-not-in-force
+        when_related: {via: input.right_id, predicate: state != InForce}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight: {right_id: input.right_id}
+        summary: A proposed or revoked right is no right.
+      - name: default-on-irreversible-class
+        when: defined(default_option)
+        when_related: {via: input.right_id, predicate: class_reversible == false}
+        error: org.decision.DefaultOnIrreversibleClass
+        payload:
+          org.decision.DefaultOnIrreversibleClass:
+            class_id: {related: {via: input.right_id, field: class_id}}
+        summary: A decision nobody takes back cannot be taken by nobody.
+      - name: opened
+        creates: org.decision.Decision
+        instance: decision_id
+        sets:
+          class_id: {related: {via: input.right_id, field: class_id}}
+          scope: {related: {via: input.right_id, field: scope}}
+          right_id: input.right_id
+          question: input.question
+          options: input.options
+          default_option: input.default_option
+          due: input.due
+          opened_at: input.at
+        emits: [org.decision.DecisionOpened]
+        payload:
+          org.decision.DecisionOpened:
+            decision_id: input.decision_id
+            class_id: {related: {via: input.right_id, field: class_id}}
+            scope: {related: {via: input.right_id, field: scope}}
+            right_id: input.right_id
+            question: input.question
+            options: input.options
+            default_option: input.default_option
+            due: input.due
+            at: input.at
+        summary: The decision is Open and waits for its decider.
+
+  # UNMAPPED: that the new decision is of the same class and scope as the one it names is not
+  # held: a guard reads one related row and cannot compare two (the new decision's right and
+  # the named decision).
+  # UNMAPPED: the named decision is read when the new one is opened and not again when it is
+  # taken: a command reads one related row through a stored reference, and DecideDecision
+  # already reads the right (`conflicting_declaration`, ESS-COMMAND-004). If the named decision
+  # was superseded by another one in between, taking this one leaves it as it is.
+  # One command with an optional `supersedes` validates, and synthesis then reaches none of its
+  # branches (ESS-SYNTH-003), so superseding is a command of its own with a required field.
+  - name: org.decision.OpenSupersedingDecision
+    naming:
+      wire: open-superseding-decision
+      display: Open a decision that supersedes a taken one
+      summary: >-
+        Opens a new decision that names a taken one. Every rule of OpenDecision holds. The named
+        decision must be on record and taken; it stands until the new one is taken and becomes
+        Superseded in that step. If the new one is withdrawn, the named one stands.
+    input:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: question, type: String}
+      - {name: options, type: List<String>}
+      - {name: default_option, type: Optional<String>}
+      - {name: due, type: Optional<Timestamp>}
+      - {name: supersedes, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-options
+        when: options.count == 0
+        error: org.decision.NoOptions
+      - name: default-not-an-option
+        when:
+          all:
+            - defined(default_option)
+            - not:
+                exists: {in: options, as: o, that: o == default_option}
+        error: org.decision.DefaultNotAnOption
+        payload:
+          org.decision.DefaultNotAnOption: {default_option: input.default_option}
+      - name: default-without-due
+        when:
+          all:
+            - defined(default_option)
+            - not defined(due)
+        error: org.decision.DefaultWithoutDue
+      - name: no-such-right
+        when_related: {via: input.right_id, exists: false}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight: {right_id: input.right_id}
+        summary: Default deny, a decision needs a right under it.
+      - name: no-such-superseded-decision
+        when_related: {via: input.supersedes, exists: false}
+        error: org.decision.SupersededDecisionNotFound
+        payload:
+          org.decision.SupersededDecisionNotFound: {supersedes: input.supersedes}
+      - name: right-not-in-force
+        when_related: {via: input.right_id, predicate: state != InForce}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight: {right_id: input.right_id}
+        summary: A proposed or revoked right is no right.
+      - name: default-on-irreversible-class
+        when: defined(default_option)
+        when_related: {via: input.right_id, predicate: class_reversible == false}
+        error: org.decision.DefaultOnIrreversibleClass
+        payload:
+          org.decision.DefaultOnIrreversibleClass:
+            class_id: {related: {via: input.right_id, field: class_id}}
+        summary: A decision nobody takes back cannot be taken by nobody.
+      - name: superseded-decision-not-taken
+        when_related:
+          via: input.supersedes
+          predicate:
+            state: {not_in: [Decided, TakenOnDefault]}
+        error: org.decision.SupersededDecisionNotTaken
+        payload:
+          org.decision.SupersededDecisionNotTaken: {supersedes: input.supersedes}
+        summary: An open, withdrawn or already superseded decision is not superseded.
+      - name: opened
+        creates: org.decision.Decision
+        instance: decision_id
+        sets:
+          class_id: {related: {via: input.right_id, field: class_id}}
+          scope: {related: {via: input.right_id, field: scope}}
+          right_id: input.right_id
+          question: input.question
+          options: input.options
+          default_option: input.default_option
+          due: input.due
+          supersedes: input.supersedes
+          opened_at: input.at
+        emits: [org.decision.DecisionOpened, org.decision.SupersessionOpened]
+        payload:
+          org.decision.DecisionOpened:
+            decision_id: input.decision_id
+            class_id: {related: {via: input.right_id, field: class_id}}
+            scope: {related: {via: input.right_id, field: scope}}
+            right_id: input.right_id
+            question: input.question
+            options: input.options
+            default_option: input.default_option
+            due: input.due
+            at: input.at
+          org.decision.SupersessionOpened:
+            decision_id: input.decision_id
+            supersedes: input.supersedes
+            at: input.at
+        summary: The decision is Open. The decision it names still stands.
+
+  # UNMAPPED: what the mode asks before a decision counts (advice sought, no objection, the
+  # votes of a body) is not held here. The design names no vote or objection entity; the command
+  # records the result, and the mode is stored for the consumer's process.
+  # UNMAPPED: for a right held by a body, that the position recording the decision sits in that
+  # body is not checked: the position's unit is a field of org.position.Position, and no guard
+  # here reads it.
+  # Synthesis: the accepting branch and the unknown-identifier branch of this command and of
+  # TakeDecisionOnDefault get no generated scenario (ESS-SYNTH-008: a stored-reference guard
+  # beside `affects:`), and no scenario rests a decision in Superseded (ESS-SYNTH-004: only
+  # `affects:` reaches that state). The accepting branches and Superseded are reached by the
+  # authored scenarios under blocks/scenarios/decision/; the unknown-identifier branches still
+  # need one.
+  - name: org.decision.DecideDecision
+    naming:
+      wire: decide-decision
+      display: Decide a decision
+      summary: >-
+        The decider chooses one of the options. The right must still be in force, and when it
+        belongs to a position, that position is the one that decides. The decision it
+        supersedes, if any, becomes Superseded in the same step.
+    input:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: chosen, type: String}
+      - {name: decided_by, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-decision
+        unknown_instance: true
+        error: org.decision.DecisionNotFound
+        payload:
+          org.decision.DecisionNotFound: {decision_id: input.decision_id}
+      # UNMAPPED: synthesis does not send this command a `chosen` that is one of the stored
+      # `options` where the command is a step on the way to another state. The command reads
+      # its right through the stored `right_id`, so it is synthesized by the strategy
+      # `arrange_related_row`: the outcome scenario of `decided` is refused (ESS-SYNTH-008), and
+      # the transition, state and invariant scenarios that run through `decided` are still
+      # written, with `chosen` at its default text. On the interpreter this guard answers them
+      # where they expect `decided` or `not-the-decider` (ESS-CF-OUTCOME: 14 scenarios, 6 of
+      # them of org.policy). No form of the guard changes that. `forall: {in: options, as: o,
+      # that: o != input.chosen}`: the same 14 fail. The decision read as a related row through
+      # `input.decision_id`: ESS-COMMAND-004, a command reads one related row. The right named
+      # in the input and held equal to the stored one: 10 scenarios fewer, and 7 fail. A row set
+      # over the decision itself: the scenarios through `decided` are refused (ESS-SYNTH-001).
+      # Without the two guards on the right every scenario passes, so the cause is the stored
+      # reference and not this guard. Taken: the guard stays as it is, the failing ids are
+      # listed in blocks/known-failing.txt, and the authored scenarios under
+      # blocks/scenarios/decision/ and blocks/scenarios/policy/ reach each outcome.
+      - name: chosen-not-an-option
+        when_subject:
+          predicate:
+            not:
+              exists: {in: options, as: o, that: o == input.chosen}
+        error: org.decision.ChosenNotAnOption
+        payload:
+          org.decision.ChosenNotAnOption: {chosen: input.chosen}
+      - name: right-not-in-force
+        when_related: {via: right_id, predicate: state != InForce}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight:
+            right_id: {subject: right_id}
+        summary: The right was revoked after the decision was opened. No right, no decision.
+      - name: not-the-decider
+        when_related:
+          via: right_id
+          predicate:
+            all:
+              - defined(decider.position)
+              - decider.position != input.decided_by
+        error: org.decision.NotTheDecider
+        payload:
+          org.decision.NotTheDecider:
+            right_id: {subject: right_id}
+            decided_by: input.decided_by
+        summary: A decision by a position without the right is refused.
+      - name: decided
+        moves: org.decision.Decision.decide
+        instance: decision_id
+        sets:
+          chosen: input.chosen
+          decided_by: input.decided_by
+          closed_at: input.at
+        emits: [org.decision.DecisionTaken]
+        payload:
+          org.decision.DecisionTaken:
+            decision_id: input.decision_id
+            class_id: {subject: class_id}
+            scope: {subject: scope}
+            right_id: {subject: right_id}
+            chosen: input.chosen
+            decided_by: input.decided_by
+            supersedes: {subject: supersedes}
+            at: input.at
+        affects:
+          - entity: org.decision.Decision
+            where: decision_id == subject.supersedes
+            moves: org.decision.Decision.supersede
+        summary: The decision is Decided and is not edited again.
+      - name: wrong-state
+        wrong_state: true
+        error: org.decision.DecisionStateConflict
+        payload:
+          org.decision.DecisionStateConflict:
+            decision_id: input.decision_id
+            state: {subject: state}
+        summary: Only an open decision is decided.
+
+  - name: org.decision.TakeDecisionOnDefault
+    naming:
+      wire: take-decision-on-default
+      display: Take a decision on its default
+      summary: >-
+        Nobody decided by the due instant, so the default option stands. The right must still
+        be in force. No position is recorded as the decider.
+    input:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-decision
+        unknown_instance: true
+        error: org.decision.DecisionNotFound
+        payload:
+          org.decision.DecisionNotFound: {decision_id: input.decision_id}
+      - name: no-default-option
+        when_subject:
+          predicate: not defined(default_option)
+        error: org.decision.NoDefaultOption
+        payload:
+          org.decision.NoDefaultOption: {decision_id: input.decision_id}
+      # UNMAPPED: synthesis does not send this command an `at` at or after the stored `due`
+      # where the command is a step on the way to another state, for the cause written at
+      # `chosen-not-an-option` of DecideDecision: the outcome scenario of `taken-on-default` is
+      # refused (ESS-SYNTH-008), and the scenarios that run through it are written with `at`
+      # before `due`, so this guard answers them (ESS-CF-OUTCOME: 5 scenarios). Taken: the
+      # guard stays as it is, the failing ids are listed in blocks/known-failing.txt, and
+      # blocks/scenarios/decision/bakery-decision-taken-on-default.yaml is refused one second
+      # before the due instant and takes the default at it.
+      - name: not-due
+        when_subject:
+          predicate: due > input.at
+        error: org.decision.DecisionNotDue
+        payload:
+          org.decision.DecisionNotDue:
+            decision_id: input.decision_id
+            due: {subject: due}
+      - name: right-not-in-force
+        when_related: {via: right_id, predicate: state != InForce}
+        error: org.decision.NoDecisionRight
+        payload:
+          org.decision.NoDecisionRight:
+            right_id: {subject: right_id}
+        summary: The right was revoked after the decision was opened. No right, no decision.
+      - name: taken-on-default
+        moves: org.decision.Decision.take_default
+        instance: decision_id
+        sets:
+          chosen: {subject: default_option}
+          closed_at: input.at
+        emits: [org.decision.DecisionTakenOnDefault]
+        payload:
+          org.decision.DecisionTakenOnDefault:
+            decision_id: input.decision_id
+            class_id: {subject: class_id}
+            scope: {subject: scope}
+            right_id: {subject: right_id}
+            chosen: {subject: default_option}
+            supersedes: {subject: supersedes}
+            at: input.at
+        affects:
+          - entity: org.decision.Decision
+            where: decision_id == subject.supersedes
+            moves: org.decision.Decision.supersede
+        summary: The decision is TakenOnDefault and is not edited again.
+      - name: wrong-state
+        wrong_state: true
+        error: org.decision.DecisionStateConflict
+        payload:
+          org.decision.DecisionStateConflict:
+            decision_id: input.decision_id
+            state: {subject: state}
+        summary: Only an open decision is taken on default.
+
+  - name: org.decision.WithdrawDecision
+    naming:
+      wire: withdraw-decision
+      display: Withdraw a decision
+      summary: >-
+        Drops an open question without an answer. It needs no right, because nothing is
+        decided.
+    input:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-decision
+        unknown_instance: true
+        error: org.decision.DecisionNotFound
+        payload:
+          org.decision.DecisionNotFound: {decision_id: input.decision_id}
+      - name: withdrawn
+        moves: org.decision.Decision.withdraw
+        instance: decision_id
+        sets:
+          closed_at: input.at
+        emits: [org.decision.DecisionWithdrawn]
+        payload:
+          org.decision.DecisionWithdrawn:
+            decision_id: input.decision_id
+            at: input.at
+        summary: The decision is Withdrawn. A decision it named to supersede stands.
+      - name: wrong-state
+        wrong_state: true
+        error: org.decision.DecisionStateConflict
+        payload:
+          org.decision.DecisionStateConflict:
+            decision_id: input.decision_id
+            state: {subject: state}
+        summary: A taken decision is not withdrawn; a new decision supersedes it.
+
+views:
+  - name: org.decision.DecisionClasses
+    source: org.decision.DecisionClass
+    consistency: read_your_writes
+    fields:
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: reversible, type: Boolean}
+      - {name: declared_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.decision.DecisionClass.State}
+    naming:
+      wire: decision-classes
+      display: Decision classes
+
+  # Who decides what, where. A class with no row in force here has no decider.
+  - name: org.decision.DecisionRights
+    source: org.decision.DecisionRight
+    consistency: read_your_writes
+    fields:
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: class_reversible, type: Boolean}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: decider, type: org.decision.Decider}
+      - {name: mode, type: org.decision.Mode}
+      - {name: consulted, type: List<org.shared.PositionId>}
+      - {name: informed, type: List<org.shared.PositionId>}
+      - {name: proposed_at, type: Timestamp}
+      - {name: in_force_since, type: Optional<Timestamp>}
+      - {name: revoked_at, type: Optional<Timestamp>}
+      - {name: state, type: org.decision.DecisionRight.State}
+    naming:
+      wire: decision-rights
+      display: Decision rights
+
+  - name: org.decision.Decisions
+    source: org.decision.Decision
+    consistency: read_your_writes
+    fields:
+      - {name: decision_id, type: org.shared.DecisionId}
+      - {name: class_id, type: org.shared.DecisionClassId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: right_id, type: org.shared.DecisionRightId}
+      - {name: question, type: String}
+      - {name: options, type: List<String>}
+      - {name: default_option, type: Optional<String>}
+      - {name: due, type: Optional<Timestamp>}
+      - {name: chosen, type: Optional<String>}
+      - {name: decided_by, type: Optional<org.shared.PositionId>}
+      - {name: supersedes, type: Optional<org.shared.DecisionId>}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.decision.Decision.State}
+    naming:
+      wire: decisions
+      display: Decisions

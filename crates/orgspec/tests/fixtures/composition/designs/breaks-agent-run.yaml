@@ -1,0 +1,17 @@
+format: orgspec-organization/1
+organization: clinic
+type: [clinic, agent-run]
+origin: invented
+summary: The agent that books appointments has nowhere to escalate to.
+parts:
+  clinic:     { block: organization, form: association }
+  board:      { block: unit, nature: governing, in: clinic }
+  east:       { block: unit, kind: ward, beds: 12, in: clinic }
+  head_nurse: { block: role, kind: lead }
+  nurse:      { block: role }
+  sister:     { block: position, in: east, role: head_nurse }
+  booking:    { block: position, in: east, role: nurse, held_by: agent }
+links:
+  - { from: sister, to: board, carries: reports_to }
+  - { from: booking, to: sister, carries: reports_to }
+  - { from: booking, to: sister, carries: answers_to }

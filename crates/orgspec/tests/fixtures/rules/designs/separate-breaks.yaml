@@ -1,0 +1,18 @@
+format: orgspec-organization/1
+organization: library
+type: separated
+origin: invented
+parts:
+  library:   { block: organization }
+  board:     { block: unit, nature: governing, in: library }
+  desk:      { block: unit, nature: line, in: library }
+  librarian: { block: role }
+  head:      { block: position, in: desk, role: librarian }
+  buyer:     { block: position, in: desk, role: librarian }
+  books:     { block: budget, amount: 900, currency: coins, period: 52w, for: desk }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: buyer, to: head, carries: reports_to }
+  - { from: head, to: books, carries: accountable }
+  - { from: head, to: books, carries: proposes }
+  - { from: head, to: books, carries: approves }

@@ -1,0 +1,10 @@
+format: orgspec-type/1
+type: upper
+origin: invented
+extends: [middle]
+summary: Turns off a gate of an extended type, and one an extended type had turned on.
+rules:
+  - id: one_board
+    gate: false
+  - id: shallow
+    gate: false

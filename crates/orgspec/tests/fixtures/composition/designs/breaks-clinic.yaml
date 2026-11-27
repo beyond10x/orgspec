@@ -1,0 +1,19 @@
+format: orgspec-organization/1
+organization: clinic
+type: [agent-run, clinic]
+origin: invented
+summary: The ward has no lead. The rule is about care units and a ward is one.
+parts:
+  clinic:     { block: organization, form: association }
+  board:      { block: unit, nature: governing, in: clinic }
+  east:       { block: unit, kind: ward, beds: 12, in: clinic }
+  nurse:      { block: role }
+  nurses:     { block: position, in: east, role: nurse, seats: 6 }
+  booking:    { block: position, in: east, role: nurse, held_by: agent }
+  rota:       { block: decision_class }
+links:
+  - { from: nurses, to: board, carries: reports_to }
+  - { from: booking, to: nurses, carries: reports_to }
+  - { from: booking, to: nurses, carries: answers_to }
+  - { from: booking, to: nurses, carries: escalates, after: 4h }
+  - { from: nurses, to: rota, carries: decides }

@@ -1,0 +1,13 @@
+format: orgspec-type/1
+type: separated
+origin: invented
+summary: An organization in which nobody approves a budget they proposed. Rule form `separate`.
+links:
+  proposes: { summary: "A position proposes a budget." }
+  approves: { summary: "A position approves a budget." }
+rules:
+  - id: proposer_does_not_approve
+    summary: Who proposes a budget does not approve it.
+    rule: separate
+    carries: [proposes, approves]
+    to: { block: budget }

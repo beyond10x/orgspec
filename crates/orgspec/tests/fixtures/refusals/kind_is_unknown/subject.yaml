@@ -1,0 +1,6 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A kind refines a kind nobody declares.
+kinds:
+  gallery: { block: unit, is: wing }

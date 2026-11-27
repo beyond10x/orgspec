@@ -1,0 +1,15 @@
+domain: fixture.base
+summary: Fixture identifiers.
+naming:
+  wire: base
+  display: Base
+types:
+  - {name: fixture.base.AId, kind: newtype, of: Uuid}
+  - {name: fixture.base.BId, kind: newtype, of: Uuid}
+  - {name: fixture.base.CId, kind: newtype, of: Uuid}
+entities:
+  - name: fixture.base.C
+    identity: {name: id, type: fixture.base.CId}
+    fields:
+      - {name: a_id, type: fixture.base.AId}
+    lifecycle: {initial: Live, states: [Live], terminal: [Live]}

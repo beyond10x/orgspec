@@ -1,0 +1,25 @@
+format: orgspec-type/1
+type: measured
+origin: invented
+summary: An organization with bounds on what its parts state. Rule form `value`.
+rules:
+  - id: agent_share_bounded
+    summary: At most three in four seats of a mixed position are held by agents.
+    rule: value
+    each: { block: position, held_by: mixed }
+    field: agent_share
+    max: 0.75
+  - id: forum_meets_regularly
+    summary: Every forum states how often it meets, between daily and every two weeks.
+    rule: value
+    each: { block: forum }
+    field: every
+    min: 1d
+    max: 2w
+    required: true
+  - id: line_unit_basis
+    summary: A line unit is grouped by function or by offering.
+    rule: value
+    each: { block: unit, nature: line }
+    field: basis
+    one_of: [function, offering]

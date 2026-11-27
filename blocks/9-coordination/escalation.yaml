@@ -1,0 +1,626 @@
+domain: org.escalation
+
+summary: >-
+  What happens when a work item or a decision is stuck. An escalation path is an ordered list of
+  positions, each with a wait before the next one is asked. An escalation is one stuck subject
+  on a path: raised at the first level, acknowledged and resolved there, or moved to the next
+  level, and Exhausted when no level is left. A path with no level is refused.
+
+naming:
+  wire: escalation
+  display: Escalation
+
+types:
+  # Named PathLevel, not Level: `org.shared.Level` is the Low to Critical scale.
+  - name: org.escalation.PathLevel
+    kind: struct
+    fields:
+      - name: position_id
+        type: org.shared.PositionId
+        summary: The position asked at this level.
+      # UNMAPPED: an escalation moves up only after the wait of its current level, and only the
+      # position of its current level acknowledges it. A guard cannot read the list element at
+      # a stored index (ESS-SPEC-012, `levels[level].wait` "invalid fact path identifier") and
+      # has no arithmetic over a Timestamp and a Duration (ESS-SPEC-012,
+      # `level_since + 1h > input.at`). Taken: the wait and the position are data for whoever
+      # drives the escalation (a clock, the simulator); the commands check neither, and the
+      # views publish `level` and `level_since` so that a reader can.
+      - name: wait
+        type: Duration
+        summary: How long this position has before the escalation moves to the next level.
+    naming:
+      summary: One level of an escalation path. The order of the list is the order of the levels.
+
+  - name: org.escalation.Subject
+    kind: union
+    tag: kind
+    variants:
+      WorkItem: org.shared.WorkItemId
+      Decision: org.shared.DecisionId
+    naming:
+      summary: What is stuck. Exactly one, by construction.
+
+entities:
+  - name: org.escalation.EscalationPath
+    naming:
+      summary: >-
+        The positions to ask, in order, when something in a unit's scope is stuck. With a decision
+        class it is the path of stuck decisions of that class; without one, of stuck work. Set
+        until retired; a retired path stays on record, because escalations name it.
+    identity:
+      name: path_id
+      type: org.shared.EscalationPathId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: scope
+        type: org.shared.UnitId
+      - name: decision_class_id
+        type: Optional<org.shared.DecisionClassId>
+      - name: levels
+        type: List<org.escalation.PathLevel>
+        summary: At least one level. Level 1 is the first element.
+      - name: set_at
+        type: Timestamp
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: scope_unit
+        kind: references
+        target: org.unit.Unit
+        cardinality: one
+        via: scope
+      - name: decision_class
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: one
+        via: decision_class_id
+    lifecycle:
+      initial: Set
+      states: [Set, Retired]
+      terminal: [Retired]
+      transitions:
+        - name: retire
+          from: [Set]
+          to: Retired
+
+  - name: org.escalation.Escalation
+    naming:
+      summary: >-
+        One stuck subject on one path. Raised at level 1. The position of its level acknowledges
+        and then resolves it; while it stays Raised it moves to the next level, and it is
+        Exhausted when the path has no next level.
+    identity:
+      name: escalation_id
+      type: org.shared.EscalationId
+    fields:
+      - name: path_id
+        type: org.shared.EscalationPathId
+      - name: subject
+        type: org.escalation.Subject
+      - name: level
+        type: Integer
+        summary: The level it is at, counted from 1.
+      # UNMAPPED: "no level is left" compares the escalation's level with the number of levels of
+      # its path. A guard over the path cannot read the escalation (ESS-COMMAND-003,
+      # `levels.count <= subject.level` "`subject` is not a declared observable root"), and a
+      # list's count is no value an outcome can store (ESS-COMMAND-001, `input.levels.count`).
+      # Taken: Raise carries the number of levels and the escalation keeps it as `last_level`.
+      # Holding that number against the path when it is raised
+      # (`levels.count != input.level_count`) validates and leaves Raise and every later state
+      # without a scenario (ESS-SYNTH-003, ESS-SYNTH-004), so only "at least one" is checked.
+      - name: last_level
+        type: Integer
+        summary: >-
+          The number of levels of its path when it was raised, as the command gave it. A later
+          change of the path's levels does not change it.
+      - name: raised_at
+        type: Timestamp
+      - name: level_since
+        type: Timestamp
+        summary: When it reached its current level. The level's wait runs from here.
+      - name: acknowledged_at
+        type: Optional<Timestamp>
+      - name: closed_at
+        type: Optional<Timestamp>
+        summary: When it was resolved or exhausted.
+    relations:
+      - name: path
+        kind: references
+        target: org.escalation.EscalationPath
+        cardinality: one
+        via: path_id
+    invariants:
+      - level >= 1
+    # UNMAPPED: how an escalation ends when its subject stops being stuck before anybody
+    # acknowledged it, and whether an Exhausted escalation can still be taken, is not stated.
+    # Taken: neither is modelled. Only an Acknowledged escalation is resolved, and Exhausted is
+    # final.
+    lifecycle:
+      initial: Raised
+      states: [Raised, Acknowledged, Resolved, Exhausted]
+      terminal: [Resolved, Exhausted]
+      transitions:
+        - name: escalate
+          from: [Raised]
+          to: Raised
+        - name: acknowledge
+          from: [Raised]
+          to: Acknowledged
+        - name: resolve
+          from: [Acknowledged]
+          to: Resolved
+        - name: exhaust
+          from: [Raised]
+          to: Exhausted
+
+errors:
+  - name: org.escalation.OrganizationNotFound
+    summary: The path names an organization that is not on record, and nothing was set.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.escalation.ScopeUnitNotFound
+    summary: The path names a scope unit that is not on record, and nothing was set.
+    fields:
+      - {name: scope, type: org.shared.UnitId}
+
+  - name: org.escalation.DecisionClassNotFound
+    summary: The path names a decision class that is not on record, and nothing was set.
+    fields:
+      - {name: decision_class_id, type: org.shared.DecisionClassId}
+
+  - name: org.escalation.PathNotFound
+    summary: No escalation path of this identity is set.
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+
+  - name: org.escalation.PathAlreadySet
+    summary: An escalation path of this identity exists.
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+
+  - name: org.escalation.PathWithoutLevels
+    summary: The path names no level. A path with nobody to ask escalates nothing.
+
+  - name: org.escalation.LevelCountInvalid
+    summary: The number of levels stated is below 1. A path has at least one level.
+    fields:
+      - {name: level_count, type: Integer}
+
+  - name: org.escalation.PathStateConflict
+    summary: The path is already Retired.
+    fields:
+      - {name: state, type: org.escalation.EscalationPath.State}
+
+  - name: org.escalation.PathNotSet
+    summary: The path is Retired. Nothing new is raised on it.
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+
+  - name: org.escalation.EscalationNotFound
+    summary: No escalation of this identity was raised.
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+
+  - name: org.escalation.EscalationAlreadyRaised
+    summary: An escalation of this identity exists.
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+
+  - name: org.escalation.EscalationStateConflict
+    summary: The escalation is not in a state this command acts from.
+    fields:
+      - {name: state, type: org.escalation.Escalation.State}
+
+events:
+  - name: org.escalation.PathSet
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: levels, type: List<org.escalation.PathLevel>}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.PathLevelsChanged
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: previous_levels, type: List<org.escalation.PathLevel>}
+      - {name: levels, type: List<org.escalation.PathLevel>}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.PathRetired
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.EscalationRaised
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: subject, type: org.escalation.Subject}
+      - {name: level, type: Integer}
+      - {name: last_level, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.EscalationAcknowledged
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: level, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.EscalationMovedUp
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: from_level, type: Integer}
+      - {name: level, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.EscalationExhausted
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: level, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.escalation.EscalationResolved
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: level, type: Integer}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.escalation.SetPath
+    naming:
+      wire: set-path
+      display: Set an escalation path
+    input:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: levels, type: List<org.escalation.PathLevel>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-level
+        when: levels.count == 0
+        error: org.escalation.PathWithoutLevels
+      - name: already-set
+        existing_instance: true
+        error: org.escalation.PathAlreadySet
+        payload:
+          org.escalation.PathAlreadySet: {path_id: input.path_id}
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.escalation.OrganizationNotFound
+        payload:
+          org.escalation.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: no-such-scope
+        when_related: {via: input.scope, exists: false}
+        error: org.escalation.ScopeUnitNotFound
+        payload:
+          org.escalation.ScopeUnitNotFound: {scope: input.scope}
+      - name: no-such-decision-class
+        when_related: {via: input.decision_class_id, exists: false}
+        error: org.escalation.DecisionClassNotFound
+        payload:
+          org.escalation.DecisionClassNotFound: {decision_class_id: input.decision_class_id}
+      - name: set
+        creates: org.escalation.EscalationPath
+        instance: path_id
+        sets:
+          organization_id: input.organization_id
+          scope: input.scope
+          decision_class_id: input.decision_class_id
+          levels: input.levels
+          set_at: input.at
+        emits: [org.escalation.PathSet]
+        payload:
+          org.escalation.PathSet:
+            path_id: input.path_id
+            organization_id: input.organization_id
+            scope: input.scope
+            decision_class_id: input.decision_class_id
+            levels: input.levels
+            at: input.at
+
+  - name: org.escalation.ChangeLevels
+    naming:
+      wire: change-levels
+      display: Change the levels of an escalation path
+      summary: >-
+        Replaces the positions and waits of a path. The event carries the levels before and
+        after. An escalation already raised keeps its level number.
+    input:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: levels, type: List<org.escalation.PathLevel>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-level
+        when: levels.count == 0
+        error: org.escalation.PathWithoutLevels
+      - name: no-such-path
+        unknown_instance: true
+        error: org.escalation.PathNotFound
+        payload:
+          org.escalation.PathNotFound: {path_id: input.path_id}
+      - name: retired
+        when_subject:
+          predicate: state == Retired
+        error: org.escalation.PathStateConflict
+        payload:
+          org.escalation.PathStateConflict: {state: {subject: state}}
+      - name: changed
+        updates: org.escalation.EscalationPath
+        instance: path_id
+        sets:
+          levels: input.levels
+        emits: [org.escalation.PathLevelsChanged]
+        payload:
+          org.escalation.PathLevelsChanged:
+            path_id: input.path_id
+            previous_levels: {subject: levels}
+            levels: input.levels
+            at: input.at
+
+  - name: org.escalation.RetirePath
+    naming:
+      wire: retire-path
+      display: Retire an escalation path
+    input:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-path
+        unknown_instance: true
+        error: org.escalation.PathNotFound
+        payload:
+          org.escalation.PathNotFound: {path_id: input.path_id}
+      - name: retired
+        moves: org.escalation.EscalationPath.retire
+        instance: path_id
+        sets:
+          retired_at: input.at
+        emits: [org.escalation.PathRetired]
+        payload:
+          org.escalation.PathRetired:
+            path_id: input.path_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.escalation.PathStateConflict
+        payload:
+          org.escalation.PathStateConflict: {state: {subject: state}}
+
+  # UNMAPPED: that the subject lies in the path's scope, and that a decision is of the path's
+  # decision class, are facts of the work and decision blocks (layers 8 and 4), which this block
+  # names by identifier only. Whether one subject may have two escalations open at once is not
+  # stated. Taken: neither is checked; whoever raises picks the path.
+  - name: org.escalation.Raise
+    naming:
+      wire: raise
+      display: Raise an escalation
+      summary: >-
+        A stuck work item or decision enters a path at its first level. The command gives the
+        number of levels of the path.
+    input:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: subject, type: org.escalation.Subject}
+      - name: level_count
+        type: Integer
+        example: 2
+        summary: The number of levels of the path, as the command gives it.
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: level-count-invalid
+        when: level_count < 1
+        error: org.escalation.LevelCountInvalid
+        payload:
+          org.escalation.LevelCountInvalid: {level_count: input.level_count}
+      - name: already-raised
+        existing_instance: true
+        error: org.escalation.EscalationAlreadyRaised
+        payload:
+          org.escalation.EscalationAlreadyRaised: {escalation_id: input.escalation_id}
+      - name: no-such-path
+        when_related: {via: input.path_id, exists: false}
+        error: org.escalation.PathNotFound
+        payload:
+          org.escalation.PathNotFound: {path_id: input.path_id}
+      - name: path-retired
+        when_related: {via: input.path_id, predicate: state != Set}
+        error: org.escalation.PathNotSet
+        payload:
+          org.escalation.PathNotSet: {path_id: input.path_id}
+      - name: raised
+        creates: org.escalation.Escalation
+        instance: escalation_id
+        sets:
+          path_id: input.path_id
+          subject: input.subject
+          level: 1
+          last_level: input.level_count
+          raised_at: input.at
+          level_since: input.at
+        emits: [org.escalation.EscalationRaised]
+        payload:
+          org.escalation.EscalationRaised:
+            escalation_id: input.escalation_id
+            path_id: input.path_id
+            subject: input.subject
+            level: 1
+            last_level: input.level_count
+            at: input.at
+        summary: The escalation is Raised at level 1.
+
+  - name: org.escalation.Acknowledge
+    naming:
+      wire: acknowledge
+      display: Acknowledge an escalation
+      summary: The position of the current level takes the escalation. It moves up no further.
+    input:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-escalation
+        unknown_instance: true
+        error: org.escalation.EscalationNotFound
+        payload:
+          org.escalation.EscalationNotFound: {escalation_id: input.escalation_id}
+      - name: acknowledged
+        moves: org.escalation.Escalation.acknowledge
+        instance: escalation_id
+        sets:
+          acknowledged_at: input.at
+        emits: [org.escalation.EscalationAcknowledged]
+        payload:
+          org.escalation.EscalationAcknowledged:
+            escalation_id: input.escalation_id
+            level: {subject: level}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.escalation.EscalationStateConflict
+        payload:
+          org.escalation.EscalationStateConflict: {state: {subject: state}}
+
+  - name: org.escalation.EscalateFurther
+    naming:
+      wire: escalate-further
+      display: Move an escalation to the next level
+      summary: >-
+        A Raised escalation that nobody acknowledged moves to the next level of its path. When the
+        path has no next level it is Exhausted.
+    input:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-escalation
+        unknown_instance: true
+        error: org.escalation.EscalationNotFound
+        payload:
+          org.escalation.EscalationNotFound: {escalation_id: input.escalation_id}
+      - name: exhausted
+        when_subject:
+          predicate: level >= last_level
+        moves: org.escalation.Escalation.exhaust
+        instance: escalation_id
+        sets:
+          closed_at: input.at
+        emits: [org.escalation.EscalationExhausted]
+        payload:
+          org.escalation.EscalationExhausted:
+            escalation_id: input.escalation_id
+            path_id: {subject: path_id}
+            level: {subject: level}
+            at: input.at
+      - name: moved-up
+        moves: org.escalation.Escalation.escalate
+        instance: escalation_id
+        sets:
+          level: {increment: 1}
+          level_since: input.at
+        emits: [org.escalation.EscalationMovedUp]
+        payload:
+          org.escalation.EscalationMovedUp:
+            escalation_id: input.escalation_id
+            path_id: {subject: path_id}
+            from_level: {subject: level}
+            level: {expr: "subject.level + 1"}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.escalation.EscalationStateConflict
+        payload:
+          org.escalation.EscalationStateConflict: {state: {subject: state}}
+
+  - name: org.escalation.Resolve
+    naming:
+      wire: resolve
+      display: Resolve an escalation
+      summary: The position that acknowledged it reports the subject is no longer stuck.
+    input:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-escalation
+        unknown_instance: true
+        error: org.escalation.EscalationNotFound
+        payload:
+          org.escalation.EscalationNotFound: {escalation_id: input.escalation_id}
+      - name: resolved
+        moves: org.escalation.Escalation.resolve
+        instance: escalation_id
+        sets:
+          closed_at: input.at
+        emits: [org.escalation.EscalationResolved]
+        payload:
+          org.escalation.EscalationResolved:
+            escalation_id: input.escalation_id
+            level: {subject: level}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.escalation.EscalationStateConflict
+        payload:
+          org.escalation.EscalationStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.escalation.EscalationPaths
+    source: org.escalation.EscalationPath
+    consistency: read_your_writes
+    fields:
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: scope, type: org.shared.UnitId}
+      - {name: decision_class_id, type: Optional<org.shared.DecisionClassId>}
+      - {name: levels, type: List<org.escalation.PathLevel>}
+      - {name: set_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.escalation.EscalationPath.State}
+    naming:
+      wire: escalation-paths
+      display: Escalation paths
+
+  - name: org.escalation.Escalations
+    source: org.escalation.Escalation
+    consistency: read_your_writes
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: subject, type: org.escalation.Subject}
+      - {name: level, type: Integer}
+      - {name: last_level, type: Integer}
+      - {name: raised_at, type: Timestamp}
+      - {name: level_since, type: Timestamp}
+      - {name: acknowledged_at, type: Optional<Timestamp>}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.escalation.Escalation.State}
+    naming:
+      wire: escalations
+      display: Escalations
+
+  - name: org.escalation.OpenEscalations
+    source: org.escalation.Escalation
+    consistency: read_your_writes
+    filter:
+      any: [state == Raised, state == Acknowledged]
+    fields:
+      - {name: escalation_id, type: org.shared.EscalationId}
+      - {name: path_id, type: org.shared.EscalationPathId}
+      - {name: subject, type: org.escalation.Subject}
+      - {name: level, type: Integer}
+      - {name: last_level, type: Integer}
+      - {name: level_since, type: Timestamp}
+      - {name: state, type: org.escalation.Escalation.State}
+    naming:
+      wire: open-escalations
+      display: Escalations not yet resolved or exhausted

@@ -1,0 +1,8 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: Kinds that fix a value outside the enumeration, a field the block lacks, and a list.
+kinds:
+  crew: { block: unit, nature: diagonal }
+  wing: { block: unit, floors: 3 }
+  guide: { block: role, expects: ["knows the house"] }

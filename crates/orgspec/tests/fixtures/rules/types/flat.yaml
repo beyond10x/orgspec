@@ -1,0 +1,19 @@
+format: orgspec-type/1
+type: flat
+origin: invented
+summary: An organization with few levels and narrow spans. Rule forms `span` and `depth`.
+rules:
+  - id: span_limited
+    summary: At most two positions report to one position.
+    rule: span
+    max: 2
+  - id: span_in_seats_limited
+    summary: At most six seats report to one librarian position.
+    rule: span
+    each: { role: librarian }
+    count: seats
+    max: 6
+  - id: depth_limited
+    summary: No chain of reporting is longer than two links.
+    rule: depth
+    max: 2

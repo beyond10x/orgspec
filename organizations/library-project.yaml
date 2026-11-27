@@ -1,0 +1,47 @@
+format: orgspec-organization/1
+organization: library-project
+type: open-source-project
+origin: invented
+summary: A project of three maintainers and about forty contributors that keeps a library for reading dates.
+
+parts:
+  project:          { block: organization, form: project, purpose: "Keep one library correct and easy to use." }
+  core:             { block: unit, nature: governing, in: project }
+  community:        { block: unit, nature: community, in: project }
+  maintainer_role:  { block: role, kind: maintainer }
+  contributor_role: { block: role, kind: contributor }
+  maintainers:      { block: position, in: core, role: maintainer_role, seats: 3 }
+  contributors:     { block: position, in: community, role: contributor_role, seats: 40 }
+  library:          { block: offering, audience: external }
+  users:            { block: relationship, tie: beneficiary }
+  sponsor:          { block: relationship, tie: funder }
+  source:           { block: asset, kind: repository, criticality: critical }
+  conduct:          { block: policy, kind: code_of_conduct, scope: project }
+  publish:          { block: decision_class, kind: publication }
+  merge:            { block: decision_class }
+  tracker:          { block: channel, form: queue, audience: external }
+  chat:             { block: channel, form: broadcast, audience: internal }
+  contribution:
+    block: process
+    steps:
+      - { name: propose, role: contributor_role, activity: do }
+      - { name: review,  role: maintainer_role,  activity: review }
+      - { name: accept,  role: maintainer_role,  activity: decide }
+  triage:           { block: forum, convenes: core, every: 1w }
+
+links:
+  - { from: maintainers,  to: publish,      carries: decides, mode: consent }
+  - { from: maintainers,  to: merge,        carries: decides, mode: sole }
+  - { from: maintainers,  to: library,      carries: accountable }
+  - { from: maintainers,  to: source,       carries: accountable }
+  - { from: maintainers,  to: conduct,      carries: accountable }
+  - { from: maintainers,  to: contribution, carries: accountable }
+  - { from: maintainers,  to: source,       carries: responsible }
+  - { from: contributors, to: library,      carries: responsible }
+  - { from: users,        to: library,      carries: demand }
+  - { from: sponsor,      to: library,      carries: funds }
+  - { from: contributors, to: maintainers,  carries: hands_off, via: tracker }
+  - { from: contributors, to: maintainers,  carries: escalates, via: chat, after: 7d }
+  - { from: triage,       to: merge,        carries: settles }
+
+border: [tracker, contributors]

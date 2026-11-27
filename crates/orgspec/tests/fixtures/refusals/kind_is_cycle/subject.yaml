@@ -1,0 +1,7 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: Two kinds refine each other.
+kinds:
+  gallery: { block: unit, is: wing }
+  wing: { block: unit, is: gallery }

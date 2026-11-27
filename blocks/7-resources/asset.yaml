@@ -1,0 +1,290 @@
+domain: org.asset
+
+summary: >-
+  What the organization has and must keep: a physical thing, a digital system, information,
+  money or a financial claim, or an intangible such as a name or a licence. An asset has a
+  class and a criticality: how bad its loss is. It is planned, in use and retired. Who answers
+  for an asset is a row of `org.responsibility`.
+
+naming:
+  wire: asset
+  display: Asset
+
+types:
+  - name: org.asset.AssetClass
+    kind: enum
+    variants: [Physical, Digital, Information, Financial, Intangible]
+    naming:
+      summary: >-
+        What kind of thing the asset is. An oven is Physical, a booking system Digital, a
+        patient register Information, a reserve account Financial, a trade name Intangible.
+
+entities:
+  - name: org.asset.Asset
+    naming:
+      summary: >-
+        One thing the organization has and must keep. A retired asset stays on record, because
+        risks and responsibilities name it.
+    identity:
+      name: asset_id
+      type: org.shared.AssetId
+    fields:
+      # UNMAPPED: PlanAsset refuses an organization that is not on record and does not read its
+      # state. Open question for the owner: whether a Dissolved organization takes a new asset.
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: class
+        type: org.asset.AssetClass
+      - name: criticality
+        type: org.shared.Level
+      - name: kind
+        type: Optional<org.shared.KindName>
+        summary: The kind an organization type gives it. Stored, never read by a guard.
+      - name: in_use_since
+        type: Optional<Timestamp>
+      - name: retired_at
+        type: Optional<Timestamp>
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    lifecycle:
+      initial: Planned
+      states: [Planned, InUse, Retired]
+      terminal: [Retired]
+      transitions:
+        - name: put_in_use
+          from: [Planned]
+          to: InUse
+        # UNMAPPED: the lifecycle is Planned → InUse → Retired with no other exit from Planned,
+        # so an asset that is planned and never put in use stays Planned. Open question for the
+        # owner: add Planned to `from` here.
+        - name: retire
+          from: [InUse]
+          to: Retired
+
+errors:
+  - name: org.asset.AssetExists
+    summary: An asset of this identifier exists, and nothing was planned.
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+
+  - name: org.asset.NoSuchAsset
+    summary: No asset of this identifier was planned.
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+
+  - name: org.asset.UnknownOrganization
+    summary: The asset names an organization that is not on record, and nothing was planned.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.asset.AssetStateConflict
+    summary: The asset is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.asset.Asset.State}
+
+  - name: org.asset.AssetIsRetired
+    summary: A retired asset is not rated again, and nothing changed.
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+
+events:
+  - name: org.asset.AssetPlanned
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: class, type: org.asset.AssetClass}
+      - {name: criticality, type: org.shared.Level}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.asset.AssetPutInUse
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: at, type: Timestamp}
+
+  - name: org.asset.AssetCriticalityChanged
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: from, type: org.shared.Level}
+      - {name: to, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+
+  - name: org.asset.AssetRetired
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.asset.PlanAsset
+    naming:
+      wire: plan-asset
+      display: Plan an asset
+    input:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: class, type: org.asset.AssetClass}
+      - {name: criticality, type: org.shared.Level}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-planned
+        existing_instance: true
+        error: org.asset.AssetExists
+        payload:
+          org.asset.AssetExists: {asset_id: input.asset_id}
+      - name: unknown-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.asset.UnknownOrganization
+        payload:
+          org.asset.UnknownOrganization: {organization_id: input.organization_id}
+      - name: planned
+        creates: org.asset.Asset
+        instance: asset_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          class: input.class
+          criticality: input.criticality
+          kind: input.kind
+        emits: [org.asset.AssetPlanned]
+        payload:
+          org.asset.AssetPlanned:
+            asset_id: input.asset_id
+            organization_id: input.organization_id
+            name: input.name
+            class: input.class
+            criticality: input.criticality
+            kind: input.kind
+            at: input.at
+        summary: The asset is Planned; the organization does not have it yet.
+
+  - name: org.asset.PutAssetInUse
+    naming:
+      wire: put-asset-in-use
+      display: Put an asset in use
+    input:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-asset
+        unknown_instance: true
+        error: org.asset.NoSuchAsset
+        payload:
+          org.asset.NoSuchAsset: {asset_id: input.asset_id}
+      - name: in-use
+        moves: org.asset.Asset.put_in_use
+        instance: asset_id
+        sets:
+          in_use_since: input.at
+        emits: [org.asset.AssetPutInUse]
+        payload:
+          org.asset.AssetPutInUse:
+            asset_id: input.asset_id
+            at: input.at
+        summary: The organization has the asset and must keep it.
+      - name: wrong-state
+        wrong_state: true
+        error: org.asset.AssetStateConflict
+        payload:
+          org.asset.AssetStateConflict: {state: {subject: state}}
+
+  - name: org.asset.SetAssetCriticality
+    naming:
+      wire: set-asset-criticality
+      display: Rate the criticality of an asset
+    input:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: criticality, type: org.shared.Level}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-asset
+        unknown_instance: true
+        error: org.asset.NoSuchAsset
+        payload:
+          org.asset.NoSuchAsset: {asset_id: input.asset_id}
+      - name: retired
+        when_subject: {predicate: state == Retired}
+        error: org.asset.AssetIsRetired
+        payload:
+          org.asset.AssetIsRetired: {asset_id: input.asset_id}
+      - name: rated
+        updates: org.asset.Asset
+        instance: asset_id
+        sets:
+          criticality: input.criticality
+        emits: [org.asset.AssetCriticalityChanged]
+        payload:
+          org.asset.AssetCriticalityChanged:
+            asset_id: input.asset_id
+            from: {subject: criticality}
+            to: input.criticality
+            at: input.at
+        summary: The new rating replaces the old one; the event carries both.
+
+  - name: org.asset.RetireAsset
+    naming:
+      wire: retire-asset
+      display: Retire an asset
+    input:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-asset
+        unknown_instance: true
+        error: org.asset.NoSuchAsset
+        payload:
+          org.asset.NoSuchAsset: {asset_id: input.asset_id}
+      - name: retired
+        moves: org.asset.Asset.retire
+        instance: asset_id
+        sets:
+          retired_at: input.at
+        emits: [org.asset.AssetRetired]
+        payload:
+          org.asset.AssetRetired:
+            asset_id: input.asset_id
+            at: input.at
+        summary: The organization no longer has the asset or no longer keeps it.
+      - name: wrong-state
+        wrong_state: true
+        error: org.asset.AssetStateConflict
+        payload:
+          org.asset.AssetStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.asset.Assets
+    source: org.asset.Asset
+    consistency: read_your_writes
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: class, type: org.asset.AssetClass}
+      - {name: criticality, type: org.shared.Level}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: in_use_since, type: Optional<Timestamp>}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.asset.Asset.State}
+    naming:
+      wire: assets
+      display: Assets
+
+  - name: org.asset.AssetsOfOrganization
+    source: org.asset.Asset
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter: organization_id == param.organization_id
+    fields:
+      - {name: asset_id, type: org.shared.AssetId}
+      - {name: name, type: org.shared.Name}
+      - {name: class, type: org.asset.AssetClass}
+      - {name: criticality, type: org.shared.Level}
+      - {name: state, type: org.asset.Asset.State}
+    naming:
+      wire: assets-of-organization
+      display: Assets of an organization

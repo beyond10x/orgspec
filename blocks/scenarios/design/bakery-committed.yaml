@@ -1,0 +1,280 @@
+# An invented bakery, lowered to commands in the design's fixed order: create the design, open a
+# revision, declare the parts, place them, declare the links, set the border, commit.
+#
+#   bakery:     { block: organization }
+#   owners:     { block: unit, nature: governing, in: bakery }
+#   shop:       { block: unit, nature: line, in: bakery }
+#   baker:      { block: role }
+#   head-baker: { block: position, in: shop, role: baker, held_by: human }
+#   counter:    { block: position, in: shop, held_by: human, seats: 2 }
+#   bread:      { block: offering }
+#   walk-ins:   { block: relationship, tie: customer }
+#   prices:     { block: decision_class }
+#   links: head-baker reports_to owners, counter reports_to head-baker, head-baker accountable
+#   bread, counter responsible bread, walk-ins demand bread, head-baker decides prices (sole)
+#   border: [counter]
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-committed
+summary: A bakery (one organization, two units, a role, two positions, an offering, a relationship, a decision class) commits.
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+
+  # parts
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000001
+      revision_id: {$instance: rev}
+      name: bakery
+      block: Organization
+      dimensions: [{name: form, value: company}]
+      at: 2026-11-27T09:00:02Z
+    outcome: added
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000002
+      revision_id: {$instance: rev}
+      name: owners
+      block: Unit
+      dimensions: [{name: nature, value: governing}]
+      at: 2026-11-27T09:00:03Z
+    outcome: added
+  - at: 2026-11-27T09:00:04Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000003
+      revision_id: {$instance: rev}
+      name: shop
+      block: Unit
+      dimensions: [{name: nature, value: line}, {name: basis, value: offering}]
+      at: 2026-11-27T09:00:04Z
+    outcome: added
+  - at: 2026-11-27T09:00:05Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000004
+      revision_id: {$instance: rev}
+      name: baker
+      block: Role
+      dimensions: []
+      at: 2026-11-27T09:00:05Z
+    outcome: added
+  - at: 2026-11-27T09:00:06Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000005
+      revision_id: {$instance: rev}
+      name: head-baker
+      block: Position
+      held_by: Human
+      seats: 1
+      dimensions: []
+      at: 2026-11-27T09:00:06Z
+    outcome: added
+  - at: 2026-11-27T09:00:07Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000006
+      revision_id: {$instance: rev}
+      name: counter
+      block: Position
+      held_by: Human
+      seats: 2
+      dimensions: []
+      at: 2026-11-27T09:00:07Z
+    outcome: added
+  - at: 2026-11-27T09:00:08Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000007
+      revision_id: {$instance: rev}
+      name: bread
+      block: Offering
+      dimensions: []
+      at: 2026-11-27T09:00:08Z
+    outcome: added
+  - at: 2026-11-27T09:00:09Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000008
+      revision_id: {$instance: rev}
+      name: walk-ins
+      block: Relationship
+      dimensions: [{name: tie, value: customer}]
+      at: 2026-11-27T09:00:09Z
+    outcome: added
+  - at: 2026-11-27T09:00:10Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000009
+      revision_id: {$instance: rev}
+      name: prices
+      block: DecisionClass
+      dimensions: [{name: reversible, value: "true"}]
+      at: 2026-11-27T09:00:10Z
+    outcome: added
+
+  # in and role
+  - at: 2026-11-27T09:00:11Z
+    command: org.design.PlacePart
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000002
+      in_part_id: 00000000-0000-4000-8000-000000000001
+      at: 2026-11-27T09:00:11Z
+    outcome: placed
+  - at: 2026-11-27T09:00:12Z
+    command: org.design.PlacePart
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000003
+      in_part_id: 00000000-0000-4000-8000-000000000001
+      at: 2026-11-27T09:00:12Z
+    outcome: placed
+  - at: 2026-11-27T09:00:13Z
+    command: org.design.PlacePart
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000005
+      in_part_id: 00000000-0000-4000-8000-000000000003
+      at: 2026-11-27T09:00:13Z
+    outcome: placed
+  - at: 2026-11-27T09:00:14Z
+    command: org.design.PlacePart
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000006
+      in_part_id: 00000000-0000-4000-8000-000000000003
+      at: 2026-11-27T09:00:14Z
+    outcome: placed
+  - at: 2026-11-27T09:00:15Z
+    command: org.design.SetRole
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000005
+      role_part_id: 00000000-0000-4000-8000-000000000004
+      at: 2026-11-27T09:00:15Z
+    outcome: set
+
+  # links
+  - at: 2026-11-27T09:00:16Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000002
+      carries: reports_to
+      at: 2026-11-27T09:00:16Z
+    outcome: added
+  - at: 2026-11-27T09:00:17Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000006
+      to_part_id: 00000000-0000-4000-8000-000000000005
+      carries: reports_to
+      at: 2026-11-27T09:00:17Z
+    outcome: added
+  - at: 2026-11-27T09:00:18Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: accountable
+      at: 2026-11-27T09:00:18Z
+    outcome: added
+  - at: 2026-11-27T09:00:19Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000006
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: responsible
+      at: 2026-11-27T09:00:19Z
+    outcome: added
+  - at: 2026-11-27T09:00:20Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000008
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: demand
+      at: 2026-11-27T09:00:20Z
+    outcome: added
+  - at: 2026-11-27T09:00:21Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000009
+      carries: decides
+      mode: Sole
+      at: 2026-11-27T09:00:21Z
+    outcome: added
+
+  # border: [counter]
+  - at: 2026-11-27T09:00:22Z
+    command: org.design.PutOnBorder
+    input:
+      revision_id: {$instance: rev}
+      part_id: 00000000-0000-4000-8000-000000000006
+      at: 2026-11-27T09:00:22Z
+    outcome: bordered
+
+  - at: 2026-11-27T09:00:23Z
+    command: org.design.CommitRevision
+    input: {revision_id: {$instance: rev}, at: 2026-11-27T09:00:23Z}
+    outcome: committed
+    events:
+      - event: org.design.RevisionCommitted
+        payload: {revision_id: {$instance: rev}, design_id: {$instance: bakery}}
+
+assert:
+  - view: org.design.Revisions
+    contains:
+      revision_id: {$instance: rev}
+      design_id: {$instance: bakery}
+      state: Committed
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    counts:
+      at_least: 6
+      at_most: 6
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    contains:
+      from_name: head-baker
+      to_name: bread
+      carries: accountable
+  - view: org.design.Parts
+    contains:
+      part_id: 00000000-0000-4000-8000-000000000006
+      in_part_id: 00000000-0000-4000-8000-000000000003
+      seats: 2
+      on_border: true
+  - view: org.design.Parts
+    contains:
+      part_id: 00000000-0000-4000-8000-000000000005
+      role_part_id: 00000000-0000-4000-8000-000000000004
+      on_border: false

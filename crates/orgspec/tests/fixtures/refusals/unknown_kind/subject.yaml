@@ -1,0 +1,33 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: Selectors and a KPI that name a kind outside the set, and a KPI kind of another block.
+kinds:
+  guide: { block: role }
+rules:
+  - id: wings_are_few
+    summary: At most four wings.
+    rule: parts
+    match: { kind: wing }
+    max: 4
+defaults:
+  - id: guide_answers
+    summary: A guide answers to the curator of the unit.
+    each: { block: position }
+    carries: answers_to
+    to: { block: position, role_kind: curator, same: unit }
+kpis:
+  - id: wings_open
+    summary: Wings open per day.
+    block: unit
+    of_kind: wing
+    measures: quality
+    unit: wings
+    direction: higher
+  - id: guided_tours
+    summary: Tours per day.
+    block: offering
+    of_kind: guide
+    measures: quality
+    unit: tours
+    direction: higher

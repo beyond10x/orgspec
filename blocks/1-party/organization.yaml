@@ -1,0 +1,491 @@
+domain: org.organization
+
+summary: >-
+  The bounded whole: a name, a purpose, a form and an optional parent organization. An
+  organization is itself a party, so it can be a customer, a supplier or a member of another
+  organization. It names its party and its parent; units, roles and members name it, never the
+  other way round.
+
+naming:
+  wire: organization
+  display: Organization
+
+types:
+  - name: org.organization.Form
+    kind: enum
+    variants: [Company, PublicBody, Association, Cooperative, Partnership, Project, Informal]
+    naming:
+      summary: >-
+        The form the organization takes towards the outside. The block stores it and does not
+        branch on it.
+
+entities:
+  - name: org.organization.Organization
+    naming:
+      summary: >-
+        One organization. Forming until it starts to operate, Operating while it pursues its
+        purpose, Suspended while it does not, Dissolved for good. A dissolved organization stays
+        on record, because past decisions and relationships name it.
+    identity:
+      name: organization_id
+      type: org.shared.OrganizationId
+    fields:
+      # The party this organization is. It is a party of kind Organization, checked when founded.
+      - name: party_id
+        type: org.shared.PartyId
+      - name: name
+        type: org.shared.Name
+      - name: purpose
+        type: String
+      - name: form
+        type: org.organization.Form
+      - name: parent
+        type: Optional<org.shared.OrganizationId>
+      - name: founded_at
+        type: Timestamp
+      - name: dissolved_at
+        type: Optional<Timestamp>
+    relations:
+      - {name: party, kind: references, target: org.party.Party, cardinality: one, via: party_id}
+      - {name: parent_organization, kind: references, target: org.organization.Organization, cardinality: one, via: parent}
+    lifecycle:
+      initial: Forming
+      states:
+        - {name: Forming, summary: "Founded; its structure is being set up."}
+        - {name: Operating, summary: "Pursues its purpose."}
+        - {name: Suspended, summary: "Exists and does not operate until resumed."}
+        - {name: Dissolved, summary: "Ended for good; stays on record."}
+      terminal: [Dissolved]
+      transitions:
+        - {name: start, from: [Forming], to: Operating}
+        - {name: suspend, from: [Operating], to: Suspended}
+        - {name: resume, from: [Suspended], to: Operating}
+        # UNMAPPED: the lifecycle is given as the chain Forming -> Operating -> Suspended ->
+        # Dissolved, and nothing says from which states an organization may be dissolved. Taken:
+        # from every state that is not Dissolved (a founding that is given up, an operating
+        # organization that is wound up, a suspended one that never resumes). Open question for
+        # the owner.
+        - {name: dissolve, from: [Forming, Operating, Suspended], to: Dissolved}
+
+errors:
+  - name: org.organization.OrganizationNotFound
+    summary: No organization of this identity exists, and nothing changed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.organization.OrganizationStateConflict
+    summary: The organization is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.organization.Organization.State}
+
+  - name: org.organization.PartyNotFound
+    summary: The party the organization would be does not exist, and nothing was founded.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+  - name: org.organization.PartyNotAnOrganization
+    summary: The party named is not of kind Organization or is retired, and nothing was founded.
+    fields:
+      - {name: party_id, type: org.shared.PartyId}
+
+  - name: org.organization.OwnParent
+    summary: An organization cannot be its own parent, and nothing changed.
+
+  - name: org.organization.ParentNotFound
+    summary: The parent organization named does not exist, and nothing changed.
+
+  - name: org.organization.ParentDissolved
+    summary: The parent organization named is dissolved, and nothing changed.
+
+events:
+  - name: org.organization.OrganizationFounded
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: form, type: org.organization.Form}
+      - {name: parent, type: Optional<org.shared.OrganizationId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.OrganizationStarted
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.PurposeStated
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: previous_purpose, type: String}
+      - {name: purpose, type: String}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.ParentSet
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: previous_parent, type: Optional<org.shared.OrganizationId>}
+      - {name: parent, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.ParentCleared
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: previous_parent, type: Optional<org.shared.OrganizationId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.OrganizationSuspended
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.OrganizationResumed
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+  - name: org.organization.OrganizationDissolved
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # Found an organization as the party it is, under a parent organization or standing alone. A
+  # new organization cannot name itself: it does not exist yet, so `no-such-parent` answers.
+  - name: org.organization.FoundOrganization
+    naming:
+      wire: found-organization
+      display: Found an organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: form, type: org.organization.Form}
+      - {name: parent, type: Optional<org.shared.OrganizationId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-party
+        when_related: {via: input.party_id, exists: false}
+        error: org.organization.PartyNotFound
+        payload:
+          org.organization.PartyNotFound: {party_id: input.party_id}
+      - name: no-such-parent
+        when_related: {via: input.parent, exists: false}
+        error: org.organization.ParentNotFound
+      - name: party-not-an-organization
+        when_related:
+          via: input.party_id
+          predicate:
+            any:
+              - kind != Organization
+              - state == Retired
+        error: org.organization.PartyNotAnOrganization
+        payload:
+          org.organization.PartyNotAnOrganization: {party_id: input.party_id}
+      - name: parent-dissolved
+        when_related: {via: input.parent, predicate: state == Dissolved}
+        error: org.organization.ParentDissolved
+      # UNMAPPED: the design says an organization "is itself a party" and does not say whether two
+      # organizations may name one party. A refusal of the second one (`when_related: {entity:
+      # Organization, where: party_id == input.party_id, exists: true}`) validates, and beside the
+      # two guards over the party row synthesis then arranges no organization at all
+      # (ESS-SYNTH-004, "the route runs through FoundOrganization/founded, which no input
+      # reaches": 26 refusals, every command of this domain). Taken: not refused here, and no
+      # rule of `orgspec check` in the design covers it. Open question for the owner.
+      - name: founded
+        creates: org.organization.Organization
+        instance: organization_id
+        sets:
+          party_id: input.party_id
+          name: input.name
+          purpose: input.purpose
+          form: input.form
+          parent: input.parent
+          founded_at: input.at
+        emits: [org.organization.OrganizationFounded]
+        payload:
+          org.organization.OrganizationFounded:
+            organization_id: input.organization_id
+            party_id: input.party_id
+            name: input.name
+            purpose: input.purpose
+            form: input.form
+            parent: input.parent
+            at: input.at
+        summary: The organization exists and is Forming.
+
+  - name: org.organization.StartOperating
+    naming:
+      wire: start-operating
+      display: Start operating
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: started
+        moves: org.organization.Organization.start
+        instance: organization_id
+        emits: [org.organization.OrganizationStarted]
+        payload:
+          org.organization.OrganizationStarted:
+            organization_id: input.organization_id
+            at: input.at
+        summary: The organization is Operating.
+      - name: wrong-state
+        wrong_state: true
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+
+  # A new purpose replaces the old one. The event carries both, so a reader sees what changed
+  # without a second read.
+  - name: org.organization.StatePurpose
+    naming:
+      wire: state-purpose
+      display: State the purpose
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: purpose, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: dissolved
+        when_subject: {predicate: state == Dissolved}
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+        summary: A dissolved organization keeps the purpose it had.
+      - name: stated
+        updates: org.organization.Organization
+        instance: organization_id
+        sets:
+          purpose: input.purpose
+        emits: [org.organization.PurposeStated]
+        payload:
+          org.organization.PurposeStated:
+            organization_id: input.organization_id
+            previous_purpose: {subject: purpose}
+            purpose: input.purpose
+            at: input.at
+        summary: The organization has the new purpose.
+
+  # Name the parent organization. ClearParent makes the organization stand alone again.
+  # UNMAPPED: a chain of parents that closes a cycle (A under B, B under A) is not refused here.
+  # ESS has no guard over a chain of rows (design, "What ESS lacks here"); only the organization
+  # that names itself is refused. The design gives `orgspec check` a cycle rule for reporting
+  # lines only (`reporting_cycle`); a cycle of parent organizations needs a rule of its own.
+  - name: org.organization.SetParent
+    naming:
+      wire: set-parent
+      display: Set the parent organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # ESS limit: this refusal validates and gets no synthesized scenario (ESS-SYNTH-003, "reads
+      # a related row of Organization itself, which is arranged one level deep and only where its
+      # lifecycle starts"). A hand-written scenario covers it.
+      - name: own-parent
+        when: input.organization_id == input.parent
+        error: org.organization.OwnParent
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: dissolved
+        when_subject: {predicate: state == Dissolved}
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+        summary: A dissolved organization keeps the parent it had.
+      - name: no-such-parent
+        when_related: {via: input.parent, exists: false}
+        error: org.organization.ParentNotFound
+      - name: parent-dissolved
+        when_related: {via: input.parent, predicate: state == Dissolved}
+        error: org.organization.ParentDissolved
+      - name: set
+        updates: org.organization.Organization
+        instance: organization_id
+        sets:
+          parent: input.parent
+        emits: [org.organization.ParentSet]
+        payload:
+          org.organization.ParentSet:
+            organization_id: input.organization_id
+            previous_parent: {subject: parent}
+            parent: input.parent
+            at: input.at
+        summary: The organization has the parent named.
+
+  - name: org.organization.ClearParent
+    naming:
+      wire: clear-parent
+      display: Clear the parent organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: dissolved
+        when_subject: {predicate: state == Dissolved}
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+        summary: A dissolved organization keeps the parent it had.
+      - name: cleared
+        updates: org.organization.Organization
+        instance: organization_id
+        sets:
+          parent: {cleared: true}
+        emits: [org.organization.ParentCleared]
+        payload:
+          org.organization.ParentCleared:
+            organization_id: input.organization_id
+            previous_parent: {subject: parent}
+            at: input.at
+        summary: The organization stands alone; clearing a parent it did not have changes nothing.
+
+  - name: org.organization.SuspendOrganization
+    naming:
+      wire: suspend-organization
+      display: Suspend an organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: suspended
+        moves: org.organization.Organization.suspend
+        instance: organization_id
+        emits: [org.organization.OrganizationSuspended]
+        payload:
+          org.organization.OrganizationSuspended:
+            organization_id: input.organization_id
+            at: input.at
+        summary: The organization does not operate until resumed.
+      - name: wrong-state
+        wrong_state: true
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+
+  - name: org.organization.ResumeOrganization
+    naming:
+      wire: resume-organization
+      display: Resume an organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: resumed
+        moves: org.organization.Organization.resume
+        instance: organization_id
+        emits: [org.organization.OrganizationResumed]
+        payload:
+          org.organization.OrganizationResumed:
+            organization_id: input.organization_id
+            at: input.at
+        summary: The organization is Operating again.
+      - name: wrong-state
+        wrong_state: true
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+
+  # UNMAPPED: the design does not say what dissolving does to the organizations that name this
+  # one as their parent, or to its units, roles and members. Lower blocks do not name higher ones,
+  # so nothing is refused or changed here. Taken: the dissolve is accepted and the other rows
+  # keep their reference; `org.unit` and `org.role` refuse a new unit or role under a dissolved
+  # organization. Open question for the owner.
+  - name: org.organization.DissolveOrganization
+    naming:
+      wire: dissolve-organization
+      display: Dissolve an organization
+    input:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        unknown_instance: true
+        error: org.organization.OrganizationNotFound
+        payload:
+          org.organization.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: dissolved
+        moves: org.organization.Organization.dissolve
+        instance: organization_id
+        sets:
+          dissolved_at: input.at
+        emits: [org.organization.OrganizationDissolved]
+        payload:
+          org.organization.OrganizationDissolved:
+            organization_id: input.organization_id
+            at: input.at
+        summary: The organization is ended for good and stays on record.
+      - name: wrong-state
+        wrong_state: true
+        error: org.organization.OrganizationStateConflict
+        payload:
+          org.organization.OrganizationStateConflict: {state: {subject: state}}
+        summary: The organization had already been dissolved.
+
+views:
+  - name: org.organization.Organizations
+    source: org.organization.Organization
+    consistency: read_your_writes
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: form, type: org.organization.Form}
+      - {name: parent, type: Optional<org.shared.OrganizationId>}
+      - {name: founded_at, type: Timestamp}
+      - {name: dissolved_at, type: Optional<Timestamp>}
+      - {name: state, type: org.organization.Organization.State}
+    naming:
+      wire: organizations
+      display: Organizations
+
+  # The organization a party of kind Organization is: the way from a member, a customer or a
+  # supplier that is an organization to its own structure. The children of an organization are
+  # the rows of Organizations whose `parent` names it.
+  - name: org.organization.OrganizationOfParty
+    source: org.organization.Organization
+    consistency: read_your_writes
+    params:
+      - {name: party_id, type: org.shared.PartyId}
+    filter: party_id == param.party_id
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: party_id, type: org.shared.PartyId}
+      - {name: name, type: org.shared.Name}
+      - {name: form, type: org.organization.Form}
+      - {name: state, type: org.organization.Organization.State}
+    naming:
+      wire: organization-of-party
+      display: Organization of a party

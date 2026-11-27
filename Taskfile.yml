@@ -1,0 +1,97 @@
+version: '3'
+
+tasks:
+  check:
+    desc: Run the repository gate.
+    cmds:
+      - task: check:public
+      - task: check:blocks
+      - task: check:scripts
+      - task: check:rust
+      - task: test
+      - task: check:types
+
+  check:public:
+    desc: Refuse content that does not belong in a public repository (home paths, e-mail addresses, IP addresses, files under types/ and organizations/ that are not marked as invented, terms of the deny list ORGSPEC_DENYLIST names).
+    cmds:
+      - scripts/check-public.sh
+
+  check:blocks:
+    desc: Validate the building blocks (blocks/), hold their layering and the KPI catalogue, and run their conformance suite on the interpreter. The suite is synthesized once per digest of its sources into target/blocks-conform/ (scripts/check-blocks-conform.sh).
+    cmds:
+      - ess specify validate --path blocks --strict-requires
+      - task: check:layers
+      - task: check:kpis
+      - scripts/check-blocks-conform.sh
+
+  slow:blocks:
+    desc: Slow lane. Synthesize the conformance suite of blocks/ afresh, compare it byte for byte with the cached suite of the same digest, and run it.
+    cmds:
+      - scripts/check-blocks-conform.sh --slow
+
+  check:layers:
+    desc: Fail when a block depends on a block of a higher layer or two blocks of one layer depend on each other; then each fixture under scripts/fixtures/layers must fail.
+    cmds:
+      - scripts/check-layers.sh
+      - scripts/check-layers.sh --negative
+
+  layers:graph:
+    desc: Print the dependency graph between blocks with counts, then the layer check.
+    cmds:
+      - scripts/check-layers.sh --graph
+
+  check:kpis:
+    desc: Check kpis/catalogue.yaml against its format, the blocks and the events they declare.
+    cmds:
+      - scripts/check-kpis.sh
+
+  check:scripts:
+    desc: Run every script test, scripts/*.test.sh.
+    cmds:
+      - |
+        set -eu
+        n=0
+        for t in scripts/*.test.sh; do
+          [ -f "$t" ] || { echo "check:scripts: no scripts/*.test.sh"; exit 1; }
+          echo "check:scripts: sh $t"
+          sh "$t"
+          n=$((n + 1))
+        done
+        echo "check:scripts: $n script test(s) passed"
+
+  check:rust:
+    desc: Format and lint the Rust workspace.
+    cmds:
+      - cargo fmt --all --check
+      - cargo clippy --locked --all-targets -- -D warnings
+
+  test:
+    desc: Run the Rust tests under cargo-nextest. A test is killed at 60 s and the step fails over 120 s (.config/nextest.toml). Prints the ten slowest tests.
+    cmds:
+      - cargo nextest run --workspace --locked --no-run
+      - silent: true
+        cmd: |
+          status=0
+          cargo nextest run --workspace --locked || status=$?
+          echo "test: the ten slowest tests (seconds)"
+          sed -n 's/.*<testcase name="\([^"]*\)" classname="\([^"]*\)".* time="\([0-9.]*\)".*/\3 \2 \1/p' \
+            target/nextest/default/junit.xml | sort -rn | head -10
+          exit $status
+
+  check:types:
+    desc: Check every public organization type (types/) and every example design (organizations/) with the checker; each broken design under organizations/broken/ must be refused with the rule its file name starts with.
+    cmds:
+      - cargo build --quiet --locked -p orgspec
+      - target/debug/orgspec type check types/*.yaml
+      - target/debug/orgspec check organizations/*.yaml
+      - scripts/check-broken.sh
+
+  digest:
+    desc: Print the digest of blocks/ that a copy in another repository is compared with.
+    cmds:
+      - scripts/blocks-digest.sh
+
+  hooks:
+    desc: Run scripts/check-public.sh before every commit and push of this checkout.
+    cmds:
+      - scripts/install-hooks.sh

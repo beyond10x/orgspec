@@ -1,0 +1,53 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: Keys the format does not have, each a typing error.
+colour: green
+kinds:
+  wing: { block: unit, attributes: { floors: { type: integer, requried: true } } }
+links:
+  curates: { summary: "A position curates an asset.", colour: red }
+rules:
+  - id: asset_has_curator
+    summary: Every asset has a curator.
+    rule: links
+    each: { block: asset }
+    carries: curates
+    direction: in
+    minimum: 1
+  - id: guides_not_alone
+    summary: A selector reads a field no position has.
+    rule: parts
+    match: { block: position, held_bye: human }
+    min: 2
+  - id: wing_has_floors
+    summary: A value rule reads a field no unit has.
+    rule: value
+    each: { block: unit }
+    field: floor_count
+    min: 1
+  - id: curator_separate
+    summary: A rule selector uses the key of a default.
+    rule: forbid
+    carries: curates
+    to: { block: asset, same: unit }
+defaults:
+  - id: curator_answers
+    summary: A default with a key it does not have.
+    each: { block: position }
+    carries: answers_to
+    to: { block: position }
+    unless: { block: unit }
+kpis:
+  - id: visitors_per_day
+    summary: Visitors per day.
+    block: offering
+    measures: quality
+    unit: visitors
+    direction: higher
+    kind: quality
+extensions:
+  - domain: museum.ticket
+    extends: work
+    path: ess/8-work/ticket.yaml
+    layer: 8

@@ -1,0 +1,33 @@
+format: orgspec-organization/1
+organization: broken-obligation_has_one_accountable
+type: regulated
+origin: invented
+summary: "Valid except for an obligation nobody is accountable for."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 3 }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+  officer_role: { block: role, kind: compliance_officer }
+  officer:   { block: position, in: floor, role: officer_role }
+  inspector: { block: relationship, tie: regulator }
+  duty:      { block: obligation, source: law, about: goods }
+  log:       { block: asset, kind: register, retention: 520w }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: officer, to: owners,    carries: reports_to }
+  - { from: officer, to: inspector, carries: serves }
+  - { from: officer, to: log,       carries: accountable }
+  - { from: officer, to: duty,      carries: responsible }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: owners, to: spend,  carries: decides, mode: consent }
+
+border: [lead]

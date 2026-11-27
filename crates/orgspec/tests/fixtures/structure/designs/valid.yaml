@@ -1,0 +1,75 @@
+format: orgspec-organization/1
+organization: bakery
+type: shop
+origin: invented
+summary: A bakery with a board, a kitchen and a shop counter. It uses every block and every link.
+parts:
+  bakery:      { block: organization, form: company, purpose: "Bread for the street." }
+  board:       { block: unit, nature: governing, in: bakery }
+  kitchen:     { block: unit, nature: line, basis: function, in: bakery, purpose: "Bakes." }
+  front:       { block: unit, kind: counter, in: bakery }
+  baker:       { block: role, purpose: "Bakes.", expects: ["bakes every morning", "keeps the oven clean"] }
+  seller:      { block: role }
+  head:        { block: position, in: kitchen, role: baker, title: Head baker }
+  hands:
+    block: position
+    in: kitchen
+    role: baker
+    seats: { value: 3, vary: { min: 2, max: 6 } }
+    held_by: mixed
+    agent_share: { value: 0.5, vary: [0, 0.25, 0.5] }
+    answer_delay: 2h
+  clerk:       { block: position, in: front, role: seller, held_by: agent }
+  spend:       { block: decision_class, impact: high }
+  recipe:      { block: decision_class, reversible: true }
+  hygiene:     { block: policy, category: rule, scope: kitchen }
+  bread:       { block: offering, audience: external }
+  street:      { block: relationship, tie: customer }
+  mill:        { block: relationship, tie: supplier }
+  growth:      { block: goal, by: "next spring", measure: "loaves a day" }
+  second_shop: { block: goal, parent: growth }
+  stone_oven:  { block: asset, kind: oven, serviced_every: 26w, fuel: gas, criticality: high }
+  flour_money: { block: budget, amount: 4000, currency: coins, period: 4w, for: kitchen }
+  baking:
+    block: process
+    steps:
+      - { name: knead, role: baker, activity: do }
+      - { name: taste, role: baker, activity: review }
+      - { name: sell, role: seller, activity: do }
+  fresh_by_seven: { block: agreement, provider: kitchen, consumer: front, measure: "loaves ready at seven", target: 200 }
+  morning:     { block: forum, convenes: kitchen, every: { value: 7d, vary: [1d, 7d] } }
+  board_note:  { block: channel, form: record, audience: internal }
+  burnt_batch: { block: risk, about: bread, likelihood: medium, impact: low, treatment: reduce }
+  food_law:    { block: obligation, source: law, about: hygiene }
+links:
+  - { from: hands, to: head, carries: reports_to }
+  - { from: clerk, to: head, carries: reports_to }
+  - { from: head, to: board, carries: reports_to }
+  - { from: hands, to: head, carries: answers_to }
+  - { from: clerk, to: head, carries: answers_to }
+  - { from: head, to: bread, carries: accountable }
+  - { from: head, to: hygiene, carries: accountable }
+  - { from: head, to: growth, carries: accountable }
+  - { from: head, to: second_shop, carries: accountable }
+  - { from: head, to: stone_oven, carries: accountable }
+  - { from: head, to: flour_money, carries: accountable }
+  - { from: head, to: baking, carries: accountable }
+  - { from: head, to: fresh_by_seven, carries: accountable }
+  - { from: head, to: burnt_batch, carries: accountable }
+  - { from: head, to: food_law, carries: accountable }
+  - { from: hands, to: bread, carries: responsible }
+  - { from: clerk, to: bread, carries: consulted }
+  - { from: clerk, to: baking, carries: informed, via: board_note }
+  - { from: board, to: spend, carries: decides, mode: consent }
+  - { from: head, to: recipe, carries: decides, mode: sole, scope: kitchen }
+  - { from: board, to: head, carries: delegates, class: spend, limit: { value: 500, vary: { min: 100, max: 1000, step: 100 } } }
+  - { from: head, to: hands, carries: delegates, class: spend, limit: 50 }
+  - { from: morning, to: recipe, carries: settles }
+  - { from: street, to: bread, carries: demand }
+  - { from: kitchen, to: front, carries: serves }
+  - { from: hands, to: clerk, carries: hands_off }
+  - { from: hands, to: head, carries: escalates, after: 2d }
+  - { from: clerk, to: head, carries: escalates, after: 1h }
+  - { from: board, to: flour_money, carries: funds }
+  - { from: mill, to: kitchen, carries: supplies }
+border: [clerk, board_note, bread]

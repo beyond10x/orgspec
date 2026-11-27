@@ -1,0 +1,4 @@
+format: orgspec-type/1
+type: second
+origin: invented
+extends: [first]

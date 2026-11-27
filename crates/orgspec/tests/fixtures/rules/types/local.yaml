@@ -1,0 +1,24 @@
+format: orgspec-type/1
+type: local
+origin: invented
+summary: An organization whose help stays close. Rule form `within`, one rule per scope.
+links:
+  stands_in: { summary: "A position stands in for another." }
+  borrows_from: { summary: "A position borrows working time from another." }
+  refers_to: { summary: "A part refers a visitor to another." }
+rules:
+  - id: stand_in_within_unit
+    summary: A position stands in only for a position of its own unit.
+    rule: within
+    carries: stands_in
+    scope: unit
+  - id: borrow_within_parent
+    summary: A position borrows only from its own unit or a unit under the same parent.
+    rule: within
+    carries: borrows_from
+    scope: parent
+  - id: refer_within_organization
+    summary: A visitor is referred only inside one organization.
+    rule: within
+    carries: refers_to
+    scope: organization

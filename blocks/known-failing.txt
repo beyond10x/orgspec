@@ -1,0 +1,52 @@
+# Synthesized scenarios of blocks/ that fail on the interpreter of the same `ess`: the scenario
+# is wrong, not the block. scripts/check-blocks-conform.sh reads this file, binds the list to
+# the suite it runs (`ess-known-failures/1`) and passes it with `--known-failing`.
+#
+# A line `# root: <text>` opens a group and is the reason of every scenario id below it, up to
+# the next such line. Every other line that starts with `#` is a comment. An id is written
+# exactly; nothing is matched by prefix.
+#
+# The run fails when a scenario that is not listed fails, and it is refused (exit 2) when a
+# listed scenario passes or is no longer in the suite: take the id off the list then. Each
+# outcome a listed scenario was written for is reached by a hand-written scenario under
+# blocks/scenarios/decision/, blocks/scenarios/policy/ or blocks/scenarios/work/.
+#
+# The three roots have one cause. A command that reads a related row through a stored field of
+# the row it addresses (`when_related: {via: <stored field>}`) is synthesized by the strategy
+# `arrange_related_row`. Synthesis refuses the outcome scenario of its accepting branch
+# (ESS-SYNTH-008) and still writes the transition, state and invariant scenarios that run
+# through that branch. In those it leaves an input that a `when_subject:` guard compares with a
+# stored value at its default, and it points the act that created the addressed row at another
+# related row without changing the inputs that act's own guards compare with it. The step is
+# then answered by a refusal where the scenario expects the accepting branch (ESS-CF-OUTCOME).
+
+# root: ESS-CF-OUTCOME beside ESS-SYNTH-008: org.decision.DecideDecision is sent a `chosen` that is none of the stored `options`, and `chosen-not-an-option` answers where the scenario expects `decided` or `not-the-decider`.
+org.decision.DecideDecision/outcome/not-the-decider
+org.decision.Decision/invariant/after/org.decision.DecideDecision/decided
+org.decision.Decision/invariant/after/org.decision.OpenSupersedingDecision/opened
+org.decision.Decision/state/Decided/refuses/org.decision.DecideDecision
+org.decision.Decision/state/Decided/refuses/org.decision.TakeDecisionOnDefault
+org.decision.Decision/state/Decided/refuses/org.decision.WithdrawDecision
+org.decision.Decision/transition/decide/by/org.decision.DecideDecision/decided
+org.decision.OpenSupersedingDecision/outcome/opened
+org.policy.AdoptPolicy/outcome/adopted
+org.policy.Policy/state/InForce/refuses/org.policy.AdoptPolicy
+org.policy.Policy/state/InForce/refuses/org.policy.RedraftPolicy
+org.policy.Policy/transition/adopt/by/org.policy.AdoptPolicy/adopted
+org.policy.Policy/transition/retire/by/org.policy.RetirePolicy/retired
+org.policy.RevisePolicy/outcome/no-such-decision
+
+# root: ESS-CF-OUTCOME beside ESS-SYNTH-008: org.decision.TakeDecisionOnDefault is sent an `at` before the stored `due`, and `not-due` answers where the scenario expects `taken-on-default`.
+org.decision.Decision/invariant/after/org.decision.TakeDecisionOnDefault/taken-on-default
+org.decision.Decision/state/TakenOnDefault/refuses/org.decision.DecideDecision
+org.decision.Decision/state/TakenOnDefault/refuses/org.decision.TakeDecisionOnDefault
+org.decision.Decision/state/TakenOnDefault/refuses/org.decision.WithdrawDecision
+org.decision.Decision/transition/take_default/by/org.decision.TakeDecisionOnDefault/taken-on-default
+
+# root: ESS-CF-OUTCOME beside ESS-SYNTH-008: org.work.OfferHandoff, arranged for org.work.AcceptHandoff, is sent a `from` that is not the `at_position` of the work item it names, and `not-at-position` answers where the scenario expects `offered`.
+org.work.AcceptHandoff/outcome/work-item-closed
+org.work.AcceptHandoff/outcome/work-item-moved
+org.work.Handoff/invariant/after/org.work.AcceptHandoff/accepted
+org.work.Handoff/state/Accepted/refuses/org.work.AcceptHandoff
+org.work.Handoff/state/Accepted/refuses/org.work.RefuseHandoff
+org.work.Handoff/transition/accept/by/org.work.AcceptHandoff/accepted

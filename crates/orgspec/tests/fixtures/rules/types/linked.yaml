@@ -1,0 +1,13 @@
+format: orgspec-type/1
+type: linked
+origin: invented
+summary: An organization whose offerings each have somebody who does the work. Rule form `links`.
+rules:
+  - id: offering_has_responsible
+    summary: Every offering has at least one position responsible for it.
+    rule: links
+    each: { block: offering }
+    carries: responsible
+    direction: in
+    other: { block: position }
+    min: 1

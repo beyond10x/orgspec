@@ -1,0 +1,5 @@
+format: orgspec-type/1
+type: lower
+origin: invented
+links:
+  curates: { summary: "A position curates an asset." }

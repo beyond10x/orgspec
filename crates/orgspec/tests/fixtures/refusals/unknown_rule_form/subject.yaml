@@ -1,0 +1,13 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A rule form outside the vocabulary, and a restatement of a rule nobody declares.
+rules:
+  - id: guides_per_wing
+    summary: One guide for every four wings.
+    rule: ratio
+    of: { block: position }
+    to: { block: unit }
+    max: 0.25
+  - id: wings_are_few
+    gate: true

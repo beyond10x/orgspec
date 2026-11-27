@@ -1,0 +1,62 @@
+format: orgspec-organization/1
+organization: design-agency
+type: professional-services
+origin: invented
+summary: A partnership of fourteen people with two practices and two clients.
+
+parts:
+  agency:          { block: organization, form: partnership, purpose: "Design what small organizations show to the public." }
+  partners:        { block: unit, nature: governing, in: agency }
+  brand:           { block: unit, kind: practice, in: agency }
+  web:             { block: unit, kind: practice, in: agency }
+  partner_role:    { block: role, kind: partner }
+  lead_role:       { block: role, kind: engagement_lead }
+  designer_role:   { block: role, purpose: "Does the design work." }
+  brand_partner:   { block: position, in: brand, role: partner_role }
+  web_partner:     { block: position, in: web, role: partner_role }
+  brand_lead:      { block: position, in: brand, role: lead_role, seats: 2 }
+  web_lead:        { block: position, in: web, role: lead_role }
+  brand_designer:  { block: position, in: brand, role: designer_role, seats: 4 }
+  web_designer:    { block: position, in: web, role: designer_role, seats: 5 }
+  identity:        { block: offering, kind: service, billing: fixed }
+  website:         { block: offering, kind: service, billing: time }
+  grocer:          { block: relationship, kind: client }
+  museum:          { block: relationship, kind: client }
+  quote:           { block: decision_class }
+  staffing:        { block: decision_class }
+  delivery:
+    block: process
+    steps:
+      - { name: brief,  role: lead_role,     activity: do }
+      - { name: design, role: designer_role, activity: do }
+      - { name: review, role: partner_role,  activity: review }
+      - { name: accept, role: lead_role,     activity: wait }
+  monday:          { block: forum, convenes: partners, every: 1w }
+
+links:
+  - { from: brand_partner,  to: partners,      carries: reports_to }
+  - { from: web_partner,    to: partners,      carries: reports_to }
+  - { from: brand_lead,     to: brand_partner, carries: reports_to }
+  - { from: web_lead,       to: web_partner,   carries: reports_to }
+  - { from: brand_designer, to: brand_lead,    carries: reports_to }
+  - { from: web_designer,   to: web_lead,      carries: reports_to }
+  - { from: brand_lead,     to: grocer,   carries: serves }
+  - { from: web_lead,       to: museum,   carries: serves }
+  - { from: grocer,         to: identity, carries: demand }
+  - { from: museum,         to: website,  carries: demand }
+  - { from: brand_partner,  to: identity, carries: accountable }
+  - { from: web_partner,    to: website,  carries: accountable }
+  - { from: brand_partner,  to: delivery, carries: accountable }
+  - { from: brand_designer, to: identity, carries: responsible }
+  - { from: web_designer,   to: website,  carries: responsible }
+  - { from: partners,       to: staffing, carries: decides, mode: consent }
+  - { from: brand_partner,  to: quote,    carries: decides, scope: brand, mode: sole }
+  - { from: web_partner,    to: quote,    carries: decides, scope: web, mode: sole }
+  - { from: brand_partner,  to: brand_lead, carries: delegates, class: quote, limit: 10000 }
+  - { from: brand_designer, to: brand_lead,  carries: escalates, after: 1d }
+  - { from: web_designer,   to: web_lead,    carries: escalates, after: 1d }
+  - { from: web_lead,       to: web_partner, carries: escalates, after: 2d }
+  - { from: brand_designer, to: brand_lead,  carries: hands_off }
+  - { from: monday,         to: staffing,    carries: settles }
+
+border: [brand_lead, web_lead]

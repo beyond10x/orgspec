@@ -1,0 +1,11 @@
+format: orgspec-type/1
+type: strict-clinic
+origin: invented
+extends: [clinic]
+summary: A clinic that holds its wards to the bed limit.
+rules:
+  - id: ward_is_small
+    gate: true
+kpis:
+  - id: beds_per_lead
+    target: 12

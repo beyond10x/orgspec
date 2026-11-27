@@ -1,0 +1,596 @@
+domain: org.forum
+
+summary: >-
+  A recurring meeting of a unit or of named positions, with a purpose, a cadence and the decision
+  classes it may settle. A meeting is one occurrence of a forum: scheduled, then held or skipped.
+  A decision of a class a forum settles waits for that forum's next meeting, so the cadence is a
+  wait every such decision pays. Who answers for a forum is a row of the responsibility block.
+
+naming:
+  wire: forum
+  display: Forum
+
+types:
+  # UNMAPPED: a forum that convenes an empty list of positions should be refused (default deny:
+  # nobody meets). A guard cannot read which variant a union holds or the list inside it
+  # (ESS-COMMAND-003, `convenes.kind` "cannot select `kind` from `org.forum.Convenes`"). Taken:
+  # the union is stored as given.
+  - name: org.forum.Convenes
+    kind: union
+    tag: kind
+    variants:
+      Unit: org.shared.UnitId
+      Positions: List<org.shared.PositionId>
+    naming:
+      summary: >-
+        Who meets: the positions of one unit, or the positions listed. Exactly one, by
+        construction.
+
+entities:
+  - name: org.forum.Forum
+    naming:
+      summary: >-
+        A meeting that recurs every `every`. Established while it meets, Suspended while it does
+        not, Dissolved for good. A dissolved forum stays on record, because meetings name it.
+    identity:
+      name: forum_id
+      type: org.shared.ForumId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: purpose
+        type: String
+      - name: convenes
+        type: org.forum.Convenes
+      # UNMAPPED: a cadence must be longer than nothing, and two meetings of a forum are `every`
+      # apart. A Duration has no ordering and no arithmetic in a guard (ESS-COMMAND-002,
+      # `every <= PT0S` "a Duration has no ordering"). Taken: the cadence is stored as given, and
+      # whoever schedules the meetings (a calendar, the simulator) spaces them.
+      - name: every
+        type: Duration
+        summary: The cadence, the time between two meetings.
+      - name: settles
+        type: List<org.shared.DecisionClassId>
+        summary: >-
+          The decision classes a meeting of this forum may settle. Empty for a forum that decides
+          nothing.
+      - name: kind
+        type: Optional<org.shared.KindName>
+        summary: The kind an organization type gives it. Stored, never interpreted.
+      - name: established_at
+        type: Timestamp
+      - name: dissolved_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: settled_classes
+        kind: references
+        target: org.decision.DecisionClass
+        cardinality: many
+        via: settles
+    # UNMAPPED: the lifecycle runs Established -> Suspended -> Dissolved. Whether a suspended
+    # forum meets again, and whether an established forum is dissolved without being suspended
+    # first, is not stated. Taken: `resume` (Suspended -> Established) and `dissolve` from both
+    # states.
+    lifecycle:
+      initial: Established
+      states: [Established, Suspended, Dissolved]
+      terminal: [Dissolved]
+      transitions:
+        - name: suspend
+          from: [Established]
+          to: Suspended
+        - name: resume
+          from: [Suspended]
+          to: Established
+        - name: dissolve
+          from: [Established, Suspended]
+          to: Dissolved
+
+  - name: org.forum.Meeting
+    naming:
+      summary: >-
+        One occurrence of a forum at a scheduled time. It is held or skipped. A held meeting lists
+        the decisions it settled; a skipped one settled nothing, and what waited for it waits for
+        the next.
+    identity:
+      name: meeting_id
+      type: org.shared.MeetingId
+    fields:
+      - name: forum_id
+        type: org.shared.ForumId
+      - name: scheduled_for
+        type: Timestamp
+      - name: decisions
+        type: List<org.shared.DecisionId>
+        summary: The decisions this meeting settled. Empty until it is held.
+    relations:
+      - name: forum
+        kind: references
+        target: org.forum.Forum
+        cardinality: one
+        via: forum_id
+      - name: settled_decisions
+        kind: references
+        target: org.decision.Decision
+        cardinality: many
+        via: decisions
+    lifecycle:
+      initial: Scheduled
+      states: [Scheduled, Held, Skipped]
+      terminal: [Held, Skipped]
+      transitions:
+        - name: hold
+          from: [Scheduled]
+          to: Held
+        - name: skip
+          from: [Scheduled]
+          to: Skipped
+
+errors:
+  - name: org.forum.OrganizationNotFound
+    summary: The forum names an organization that is not on record, and nothing was established.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.forum.ForumNotFound
+    summary: No forum of this identity is established.
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+
+  - name: org.forum.ForumAlreadyEstablished
+    summary: A forum of this identity exists.
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+
+  - name: org.forum.ForumStateConflict
+    summary: The forum is not in a state this command acts from.
+    fields:
+      - {name: state, type: org.forum.Forum.State}
+
+  - name: org.forum.ForumNotEstablished
+    summary: The forum is Suspended or Dissolved. It schedules no meeting.
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+
+  - name: org.forum.DuplicateDecisionClass
+    summary: The list of decision classes names one class twice.
+
+  - name: org.forum.DecisionNotFound
+    summary: The meeting names a decision that is not on record, and nothing was recorded.
+    fields:
+      - {name: decisions, type: List<org.shared.DecisionId>}
+
+  - name: org.forum.MeetingNotFound
+    summary: No meeting of this identity is scheduled.
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+
+  - name: org.forum.MeetingAlreadyScheduled
+    summary: A meeting of this identity exists.
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+
+  - name: org.forum.MeetingStateConflict
+    summary: The meeting is no longer Scheduled.
+    fields:
+      - {name: state, type: org.forum.Meeting.State}
+
+events:
+  - name: org.forum.ForumEstablished
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: convenes, type: org.forum.Convenes}
+      - {name: every, type: Duration}
+      - {name: settles, type: List<org.shared.DecisionClassId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.ForumRevised
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: previous_every, type: Duration}
+      - {name: every, type: Duration}
+      - {name: previous_settles, type: List<org.shared.DecisionClassId>}
+      - {name: settles, type: List<org.shared.DecisionClassId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.ForumSuspended
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.ForumResumed
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.ForumDissolved
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.MeetingScheduled
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: scheduled_for, type: Timestamp}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.MeetingHeld
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: decisions, type: List<org.shared.DecisionId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.forum.MeetingSkipped
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: the decision classes in `settles` are not checked for existence. A refusal over the
+  # rows a list names stands beside no refusal over another related row (ESS-COMMAND-004), and
+  # this command refuses an organization that is not on record. The positions or the unit in
+  # `convenes` are not checked either: a union is no entity's identity (ESS-COMMAND-002).
+  - name: org.forum.EstablishForum
+    naming:
+      wire: establish-forum
+      display: Establish a forum
+    input:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: convenes, type: org.forum.Convenes}
+      - {name: every, type: Duration}
+      - {name: settles, type: List<org.shared.DecisionClassId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: duplicate-class
+        when: {not: {distinct: {in: settles, as: c}}}
+        error: org.forum.DuplicateDecisionClass
+      - name: already-established
+        existing_instance: true
+        error: org.forum.ForumAlreadyEstablished
+        payload:
+          org.forum.ForumAlreadyEstablished: {forum_id: input.forum_id}
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.forum.OrganizationNotFound
+        payload:
+          org.forum.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: established
+        creates: org.forum.Forum
+        instance: forum_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          purpose: input.purpose
+          convenes: input.convenes
+          every: input.every
+          settles: input.settles
+          kind: input.kind
+          established_at: input.at
+        emits: [org.forum.ForumEstablished]
+        payload:
+          org.forum.ForumEstablished:
+            forum_id: input.forum_id
+            organization_id: input.organization_id
+            name: input.name
+            convenes: input.convenes
+            every: input.every
+            settles: input.settles
+            kind: input.kind
+            at: input.at
+        summary: The forum is Established and has no meeting yet.
+
+  # UNMAPPED: the decision classes in `settles` are not checked for existence here either. With
+  # `when_related: {via: input.settles, exists: false}` on this command the refusal
+  # `duplicate-class` loses its scenario (ESS-SYNTH-008).
+  - name: org.forum.ReviseForum
+    naming:
+      wire: revise-forum
+      display: Revise a forum's cadence and decision classes
+      summary: >-
+        Replaces the cadence and the list of decision classes the forum settles. The event carries
+        both before and after. Meetings already scheduled keep their time.
+    input:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: every, type: Duration}
+      - {name: settles, type: List<org.shared.DecisionClassId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: duplicate-class
+        when: {not: {distinct: {in: settles, as: c}}}
+        error: org.forum.DuplicateDecisionClass
+      - name: no-such-forum
+        unknown_instance: true
+        error: org.forum.ForumNotFound
+        payload:
+          org.forum.ForumNotFound: {forum_id: input.forum_id}
+      - name: dissolved
+        when_subject:
+          predicate: state == Dissolved
+        error: org.forum.ForumStateConflict
+        payload:
+          org.forum.ForumStateConflict: {state: {subject: state}}
+        summary: A dissolved forum is not revised.
+      - name: revised
+        updates: org.forum.Forum
+        instance: forum_id
+        sets:
+          every: input.every
+          settles: input.settles
+        emits: [org.forum.ForumRevised]
+        payload:
+          org.forum.ForumRevised:
+            forum_id: input.forum_id
+            previous_every: {subject: every}
+            every: input.every
+            previous_settles: {subject: settles}
+            settles: input.settles
+            at: input.at
+
+  - name: org.forum.SuspendForum
+    naming:
+      wire: suspend-forum
+      display: Suspend a forum
+    input:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-forum
+        unknown_instance: true
+        error: org.forum.ForumNotFound
+        payload:
+          org.forum.ForumNotFound: {forum_id: input.forum_id}
+      - name: suspended
+        moves: org.forum.Forum.suspend
+        instance: forum_id
+        emits: [org.forum.ForumSuspended]
+        payload:
+          org.forum.ForumSuspended:
+            forum_id: input.forum_id
+            at: input.at
+        summary: The forum schedules no meeting until it resumes.
+      - name: wrong-state
+        wrong_state: true
+        error: org.forum.ForumStateConflict
+        payload:
+          org.forum.ForumStateConflict: {state: {subject: state}}
+
+  - name: org.forum.ResumeForum
+    naming:
+      wire: resume-forum
+      display: Resume a suspended forum
+    input:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-forum
+        unknown_instance: true
+        error: org.forum.ForumNotFound
+        payload:
+          org.forum.ForumNotFound: {forum_id: input.forum_id}
+      - name: resumed
+        moves: org.forum.Forum.resume
+        instance: forum_id
+        emits: [org.forum.ForumResumed]
+        payload:
+          org.forum.ForumResumed:
+            forum_id: input.forum_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.forum.ForumStateConflict
+        payload:
+          org.forum.ForumStateConflict: {state: {subject: state}}
+
+  - name: org.forum.DissolveForum
+    naming:
+      wire: dissolve-forum
+      display: Dissolve a forum
+    input:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-forum
+        unknown_instance: true
+        error: org.forum.ForumNotFound
+        payload:
+          org.forum.ForumNotFound: {forum_id: input.forum_id}
+      - name: dissolved
+        moves: org.forum.Forum.dissolve
+        instance: forum_id
+        sets:
+          dissolved_at: input.at
+        emits: [org.forum.ForumDissolved]
+        payload:
+          org.forum.ForumDissolved:
+            forum_id: input.forum_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.forum.ForumStateConflict
+        payload:
+          org.forum.ForumStateConflict: {state: {subject: state}}
+
+  - name: org.forum.ScheduleMeeting
+    naming:
+      wire: schedule-meeting
+      display: Schedule a meeting of a forum
+      summary: Only an Established forum schedules a meeting.
+    input:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: scheduled_for, type: Timestamp}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-scheduled
+        existing_instance: true
+        error: org.forum.MeetingAlreadyScheduled
+        payload:
+          org.forum.MeetingAlreadyScheduled: {meeting_id: input.meeting_id}
+      - name: no-such-forum
+        when_related: {via: input.forum_id, exists: false}
+        error: org.forum.ForumNotFound
+        payload:
+          org.forum.ForumNotFound: {forum_id: input.forum_id}
+      - name: forum-not-established
+        when_related: {via: input.forum_id, predicate: state != Established}
+        error: org.forum.ForumNotEstablished
+        payload:
+          org.forum.ForumNotEstablished: {forum_id: input.forum_id}
+      - name: scheduled
+        creates: org.forum.Meeting
+        instance: meeting_id
+        sets:
+          forum_id: input.forum_id
+          scheduled_for: input.scheduled_for
+          decisions: []
+        emits: [org.forum.MeetingScheduled]
+        payload:
+          org.forum.MeetingScheduled:
+            meeting_id: input.meeting_id
+            forum_id: input.forum_id
+            scheduled_for: input.scheduled_for
+            at: input.at
+        summary: The meeting is Scheduled and has settled nothing.
+
+  # UNMAPPED: a meeting settles only decisions of a class its forum settles, and a forum that is
+  # not Established holds no meeting. Both guards read the forum through the meeting's stored
+  # `forum_id`. They validate; synthesis then gives the unknown-meeting answer no scenario
+  # (ESS-SYNTH-008) and loses a Meeting check after ResumeForum (ESS-SYNTH-001), and the class
+  # guard over a list of classes gets no scenario at all (ESS-SYNTH-003). Naming the forum in the
+  # input as well was refused the same way (ESS-SYNTH-003, ESS-SYNTH-004). Taken: HoldMeeting
+  # records the decisions as given. Whether a decision's class is one the forum settles is read
+  # from `Forums.settles` by whoever sends the command, and is a correctness figure of a run.
+  - name: org.forum.HoldMeeting
+    naming:
+      wire: hold-meeting
+      display: Hold a meeting
+      summary: Records that the meeting took place and which decisions it settled.
+    input:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: decisions, type: List<org.shared.DecisionId>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-meeting
+        unknown_instance: true
+        error: org.forum.MeetingNotFound
+        payload:
+          org.forum.MeetingNotFound: {meeting_id: input.meeting_id}
+      - name: no-such-decision
+        when_related: {via: input.decisions, exists: false}
+        error: org.forum.DecisionNotFound
+        payload:
+          org.forum.DecisionNotFound: {decisions: input.decisions}
+      - name: held
+        moves: org.forum.Meeting.hold
+        instance: meeting_id
+        sets:
+          decisions: input.decisions
+        emits: [org.forum.MeetingHeld]
+        payload:
+          org.forum.MeetingHeld:
+            meeting_id: input.meeting_id
+            forum_id: {subject: forum_id}
+            decisions: input.decisions
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.forum.MeetingStateConflict
+        payload:
+          org.forum.MeetingStateConflict: {state: {subject: state}}
+
+  - name: org.forum.SkipMeeting
+    naming:
+      wire: skip-meeting
+      display: Skip a meeting
+      summary: The meeting does not take place. Decisions that waited for it wait for the next one.
+    input:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-meeting
+        unknown_instance: true
+        error: org.forum.MeetingNotFound
+        payload:
+          org.forum.MeetingNotFound: {meeting_id: input.meeting_id}
+      - name: skipped
+        moves: org.forum.Meeting.skip
+        instance: meeting_id
+        emits: [org.forum.MeetingSkipped]
+        payload:
+          org.forum.MeetingSkipped:
+            meeting_id: input.meeting_id
+            forum_id: {subject: forum_id}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.forum.MeetingStateConflict
+        payload:
+          org.forum.MeetingStateConflict: {state: {subject: state}}
+
+views:
+  # UNMAPPED: "the forums that settle decision class X" as a view narrowed by a parameter
+  # (`exists c in settles: c == param.decision_class_id`) validates, and synthesis skips every
+  # read of it (ESS-SYNTH-005). Taken: `Forums` publishes `settles` and `state`; the reader keeps
+  # the Established forums whose list holds the class.
+  - name: org.forum.Forums
+    source: org.forum.Forum
+    consistency: read_your_writes
+    fields:
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: convenes, type: org.forum.Convenes}
+      - {name: every, type: Duration}
+      - {name: settles, type: List<org.shared.DecisionClassId>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: established_at, type: Timestamp}
+      - {name: dissolved_at, type: Optional<Timestamp>}
+      - {name: state, type: org.forum.Forum.State}
+    naming:
+      wire: forums
+      display: Forums
+
+  - name: org.forum.Meetings
+    source: org.forum.Meeting
+    consistency: read_your_writes
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: forum_id, type: org.shared.ForumId}
+      - {name: scheduled_for, type: Timestamp}
+      - {name: decisions, type: List<org.shared.DecisionId>}
+      - {name: state, type: org.forum.Meeting.State}
+    naming:
+      wire: meetings
+      display: Meetings
+
+  - name: org.forum.ScheduledMeetings
+    source: org.forum.Meeting
+    consistency: read_your_writes
+    params:
+      - {name: forum_id, type: org.shared.ForumId}
+    filter:
+      all: [state == Scheduled, forum_id == param.forum_id]
+    fields:
+      - {name: meeting_id, type: org.shared.MeetingId}
+      - {name: scheduled_for, type: Timestamp}
+    naming:
+      wire: scheduled-meetings
+      display: Scheduled meetings of a forum

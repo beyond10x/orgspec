@@ -1,0 +1,38 @@
+format: orgspec-type/1
+type: upper
+origin: invented
+extends: [lower]
+summary: Bounds that cannot hold, alone or together with the extended type.
+rules:
+  - id: at_most_one_board
+    summary: At most one governing unit. The extended type wants two.
+    rule: parts
+    match: { nature: [governing], block: unit }
+    max: 1
+  - id: few_curators
+    summary: The least is above the most.
+    rule: links
+    each: { block: asset }
+    carries: accountable
+    direction: in
+    min: 3
+    max: 2
+  - id: no_deputies
+    summary: No position reports to a head. The extended type wants one.
+    rule: links
+    each: { where: { role: head }, block: position }
+    carries: reports_to
+    direction: in
+    max: 0
+  - id: forum_weekly_at_most
+    summary: A forum meets at least weekly. The extended type wants two weeks or more.
+    rule: value
+    each: { block: forum }
+    field: every
+    max: 7d
+  - id: unit_basis_market
+    summary: A unit is grouped by market or region. The extended type allows neither.
+    rule: value
+    each: { block: unit }
+    field: basis
+    one_of: [market, region]

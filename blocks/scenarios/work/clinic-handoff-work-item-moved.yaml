@@ -1,0 +1,92 @@
+# The invented clinic's triage desk offers one intake to two positions, a ward and the
+# laboratory. Both hand-offs wait. The ward accepts first and the item moves to it. The
+# laboratory's acceptance is then refused: the item is no longer at the position that offered
+# it. The laboratory refuses its hand-off instead, and the item stays at the ward.
+#
+#   0441 work item, 0442 hand-off to the ward, 0443 hand-off to the laboratory,
+#   0451 position triage, 0452 position ward, 0453 position laboratory
+type: ess-scenario/7
+domain: org.work
+scenario: clinic-handoff-work-item-moved
+summary: Of two waiting hand-offs of one work item the first accepted moves it; the second is not accepted (WorkItemNotAtPosition) and is refused.
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.work.OpenWorkItem
+    input:
+      work_item_id: 00000000-0000-4000-8000-000000000441
+      at_position: 00000000-0000-4000-8000-000000000451
+      at: 2026-11-27T09:00:00Z
+    outcome: opened
+  - at: 2026-11-27T09:00:01Z
+    command: org.work.OfferHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000442
+      work_item_id: 00000000-0000-4000-8000-000000000441
+      from: 00000000-0000-4000-8000-000000000451
+      to: 00000000-0000-4000-8000-000000000452
+      at: 2026-11-27T09:00:01Z
+    outcome: offered
+  - at: 2026-11-27T09:00:02Z
+    command: org.work.OfferHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000443
+      work_item_id: 00000000-0000-4000-8000-000000000441
+      from: 00000000-0000-4000-8000-000000000451
+      to: 00000000-0000-4000-8000-000000000453
+      at: 2026-11-27T09:00:02Z
+    outcome: offered
+
+  # the ward is first
+  - at: 2026-11-27T09:05:00Z
+    command: org.work.AcceptHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000442
+      accepted_by: 00000000-0000-4000-8000-000000000452
+      taken_from: 00000000-0000-4000-8000-000000000451
+      at: 2026-11-27T09:05:00Z
+    outcome: accepted
+  # the laboratory is late
+  - at: 2026-11-27T09:06:00Z
+    command: org.work.AcceptHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000443
+      accepted_by: 00000000-0000-4000-8000-000000000453
+      taken_from: 00000000-0000-4000-8000-000000000451
+      at: 2026-11-27T09:06:00Z
+    outcome: work-item-moved
+    error:
+      name: org.work.WorkItemNotAtPosition
+      fields:
+        work_item_id: 00000000-0000-4000-8000-000000000441
+        position_id: 00000000-0000-4000-8000-000000000451
+    no_events: [org.work.HandoffAccepted]
+  - at: 2026-11-27T09:06:01Z
+    command: org.work.RefuseHandoff
+    input:
+      handoff_id: 00000000-0000-4000-8000-000000000443
+      refused_by: 00000000-0000-4000-8000-000000000453
+      reason: The ward took the intake.
+      at: 2026-11-27T09:06:01Z
+    outcome: refused
+
+assert:
+  - view: org.work.WorkItems
+    contains:
+      work_item_id: 00000000-0000-4000-8000-000000000441
+      at_position: 00000000-0000-4000-8000-000000000452
+      state: Open
+  - view: org.work.Handoffs
+    contains:
+      handoff_id: 00000000-0000-4000-8000-000000000442
+      state: Accepted
+  - view: org.work.Handoffs
+    contains:
+      handoff_id: 00000000-0000-4000-8000-000000000443
+      answered_at: 2026-11-27T09:06:01Z
+      state: Refused
+  - view: org.work.HandoffsAwaiting
+    params:
+      position_id: 00000000-0000-4000-8000-000000000453
+    counts:
+      at_most: 0

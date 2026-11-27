@@ -1,0 +1,7 @@
+format: ess/37
+system: fixture
+version: v1
+domains:
+  - fixture.base
+  - fixture.a
+  - fixture.b

@@ -1,0 +1,12 @@
+format: orgspec-type/1
+type: hasty
+origin: invented
+summary: A type that is refused. A design that names it is not checked.
+rules:
+  - id: asset_has_curator
+    summary: Every asset has a curator.
+    rule: links
+    each: { block: asset }
+    carries: curates
+    direction: in
+    min: 1

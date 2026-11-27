@@ -1,0 +1,74 @@
+format: orgspec-organization/1
+organization: notes-company
+type: product-company
+origin: invented
+summary: A company of about twenty people with a live product, a product in beta and one platform team.
+
+parts:
+  company:            { block: organization, form: company, purpose: "Give people one place for their notes on every device." }
+  management:         { block: unit, nature: governing, in: company }
+  notes_squad:        { block: unit, kind: squad, in: company }
+  sync_squad:         { block: unit, kind: squad, in: company }
+  infra:              { block: unit, kind: platform, in: company }
+  head_role:          { block: role, purpose: "Runs the company." }
+  product_lead_role:  { block: role, kind: product_lead }
+  platform_lead_role: { block: role, purpose: "Answers for what the platform team offers." }
+  engineer_role:      { block: role, purpose: "Builds, releases and runs." }
+  designer_role:      { block: role, purpose: "Decides how the product looks and reads." }
+  head:               { block: position, in: management, role: head_role }
+  notes_lead:         { block: position, in: notes_squad, role: product_lead_role }
+  notes_engineer:     { block: position, in: notes_squad, role: engineer_role, seats: { value: 5, vary: { min: 3, max: 8 } } }
+  notes_designer:     { block: position, in: notes_squad, role: designer_role }
+  sync_lead:          { block: position, in: sync_squad, role: product_lead_role }
+  sync_engineer:      { block: position, in: sync_squad, role: engineer_role, seats: 4 }
+  infra_lead:         { block: position, in: infra, role: platform_lead_role }
+  infra_engineer:     { block: position, in: infra, role: engineer_role, seats: 3 }
+  notes_app:          { block: offering, kind: product, stage: live }
+  sync_service:       { block: offering, kind: product, stage: beta }
+  build_pipeline:     { block: offering, kind: internal_service }
+  subscribers:        { block: relationship, tie: customer }
+  testers:            { block: relationship, tie: customer }
+  ship:               { block: decision_class, kind: release }
+  pricing:            { block: decision_class }
+  hiring:             { block: decision_class }
+  growth:             { block: goal, by: "2027-06-30", measure: "paying subscribers" }
+  platform_budget:    { block: budget, amount: 400000, currency: EUR, period: 52w, for: infra }
+  pipeline_terms:     { block: agreement, provider: infra, consumer: notes_squad, measure: "share of hours the pipeline accepts a build", target: "0.995" }
+  planning:           { block: forum, convenes: management, every: { value: 2w, vary: [1w, 2w, 4w] } }
+
+links:
+  - { from: notes_lead,     to: head,       carries: reports_to }
+  - { from: sync_lead,      to: head,       carries: reports_to }
+  - { from: infra_lead,     to: head,       carries: reports_to }
+  - { from: notes_engineer, to: notes_lead, carries: reports_to }
+  - { from: notes_designer, to: notes_lead, carries: reports_to }
+  - { from: sync_engineer,  to: sync_lead,  carries: reports_to }
+  - { from: infra_engineer, to: infra_lead, carries: reports_to }
+  - { from: notes_squad,    to: notes_app,      carries: serves }
+  - { from: sync_squad,     to: sync_service,   carries: serves }
+  - { from: infra,          to: build_pipeline, carries: serves }
+  - { from: subscribers,    to: notes_app,      carries: demand }
+  - { from: testers,        to: sync_service,   carries: demand }
+  - { from: notes_lead,     to: notes_app,       carries: accountable }
+  - { from: sync_lead,      to: sync_service,    carries: accountable }
+  - { from: infra_lead,     to: build_pipeline,  carries: accountable }
+  - { from: infra_lead,     to: pipeline_terms,  carries: accountable }
+  - { from: head,           to: growth,          carries: accountable }
+  - { from: head,           to: platform_budget, carries: accountable }
+  - { from: notes_engineer, to: notes_app,      carries: responsible }
+  - { from: notes_designer, to: notes_app,      carries: responsible }
+  - { from: sync_engineer,  to: sync_service,   carries: responsible }
+  - { from: infra_engineer, to: build_pipeline, carries: responsible }
+  - { from: notes_lead,     to: ship,    carries: decides, scope: notes_squad, mode: sole }
+  - { from: sync_lead,      to: ship,    carries: decides, scope: sync_squad, mode: sole }
+  - { from: infra_lead,     to: ship,    carries: decides, scope: infra, mode: sole }
+  - { from: head,           to: pricing, carries: decides, mode: advice }
+  - { from: head,           to: hiring,  carries: decides, mode: advice }
+  - { from: notes_engineer, to: notes_lead, carries: escalates, after: 1d }
+  - { from: sync_engineer,  to: sync_lead,  carries: escalates, after: 1d }
+  - { from: infra_engineer, to: infra_lead, carries: escalates, after: 4h }
+  - { from: notes_lead,     to: head,       carries: escalates, after: 2d }
+  - { from: platform_budget, to: infra,     carries: funds }
+  - { from: planning,       to: pricing,    carries: settles }
+
+border: [notes_lead, sync_lead]

@@ -1,0 +1,103 @@
+# Broken variant: a demand link that starts at a position, and one that ends at a position
+# (`demand_without_offering`).
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-demand-without-offering
+summary: A demand link that does not run from a relationship to an offering is refused (DemandWithoutOffering).
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000006
+      revision_id: {$instance: rev}
+      name: counter
+      block: Position
+      dimensions: []
+      at: 2026-11-27T09:00:02Z
+    outcome: added
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000007
+      revision_id: {$instance: rev}
+      name: bread
+      block: Offering
+      dimensions: []
+      at: 2026-11-27T09:00:03Z
+    outcome: added
+  - at: 2026-11-27T09:00:04Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000008
+      revision_id: {$instance: rev}
+      name: walk-ins
+      block: Relationship
+      dimensions: []
+      at: 2026-11-27T09:00:04Z
+    outcome: added
+
+  - at: 2026-11-27T09:00:05Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000006
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: demand
+      at: 2026-11-27T09:00:05Z
+    outcome: demand-not-from-relationship
+    error:
+      name: org.design.DemandWithoutOffering
+    no_events: [org.design.LinkAdded]
+  - at: 2026-11-27T09:00:06Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000008
+      to_part_id: 00000000-0000-4000-8000-000000000006
+      carries: demand
+      at: 2026-11-27T09:00:06Z
+    outcome: demand-not-to-offering
+    error:
+      name: org.design.DemandWithoutOffering
+    no_events: [org.design.LinkAdded]
+  - at: 2026-11-27T09:00:07Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000008
+      to_part_id: 00000000-0000-4000-8000-000000000007
+      carries: demand
+      at: 2026-11-27T09:00:07Z
+    outcome: added
+
+assert:
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    counts:
+      at_least: 1
+      at_most: 1
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    contains:
+      from_name: walk-ins
+      to_name: bread
+      carries: demand

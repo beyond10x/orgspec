@@ -1,0 +1,7 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A kind fixes a dimension to another value than the kind it refines.
+kinds:
+  crew: { block: unit, nature: line }
+  council: { block: unit, is: crew, nature: governing }

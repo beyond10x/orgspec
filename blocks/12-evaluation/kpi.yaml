@@ -1,0 +1,468 @@
+# KPI: a KPI as data. Source: design/building-blocks.md, "The blocks" § 12 evaluation ("Name,
+# unit, the events it reads, the block it belongs to, and its direction per posture (explore,
+# scale, operate)"), § "KPIs per block" (correctness, completeness, quality; "a posture changes
+# directions and weights") and § "Three levels, two sources" (a simulated and an observed run
+# produce the same events, so one KPI definition scores both). design/organization-types.md
+# § "What stays private": "A KPI is read over a position, a role or a unit, never over a party."
+# The catalogue (`kpis/catalogue.yaml`) is lowered to commands of this domain.
+domain: org.kpi
+
+summary: >-
+  A KPI as data: its name, its unit, the block it belongs to, whether it measures correctness,
+  completeness or quality, the events it reads and whether it is a gate. A posture (explore,
+  scale, operate) gives each KPI a direction. A measurement is one value of a KPI for a design
+  revision or an observed window, from a simulated or an observed run. A KPI names no party:
+  no field of a KPI, a direction or a measurement holds a party, a membership or an assignment,
+  so nobody is scored.
+
+naming:
+  wire: kpi
+  display: KPI
+
+types:
+  # org.shared declares no identifier for a direction row or a measurement; only this domain
+  # addresses them.
+  - {name: org.kpi.DirectionId, kind: newtype, of: Uuid}
+  - {name: org.kpi.MeasurementId, kind: newtype, of: Uuid}
+
+  - name: org.kpi.Unit
+    kind: newtype
+    of: String
+    naming:
+      summary: The unit a value is in (a count, a share, hours, money per request).
+
+  # The name of an event a block declares, fully qualified (`org.decision.DecisionTaken`).
+  # UNMAPPED: an event name is text and is not checked against a declared event: ESS has no type
+  # whose values are the events of the system. `scripts/check-kpis.sh` holds the catalogue against
+  # the events the blocks declare.
+  - name: org.kpi.EventName
+    kind: newtype
+    of: String
+
+  # The block a KPI belongs to: one variant per block domain of layers 1 to 12. The catalogue
+  # (kpis/catalogue.yaml) holds KPIs of `kpi` and `experiment` too, so both are variants.
+  # UNMAPPED: whether a KPI of a type may name a kind in place of a block ("naming a block or a
+  # kind", organization-types.md § "kpis"). Taken: no; a KPI names one block.
+  - name: org.kpi.Block
+    kind: enum
+    variants: [Party, Organization, Unit, Role, Position, Membership, Assignment, Competence, Decision, Delegation, Policy, Offering, Relationship, Goal, Asset, Budget, Process, Work, Agreement, Forum, Channel, Escalation, Responsibility, Risk, Obligation, Type, Design, Kpi, Experiment]
+
+  - name: org.kpi.Measures
+    kind: enum
+    variants: [Correctness, Completeness, Quality]
+    naming:
+      summary: >-
+        What a KPI says. Correctness is a count that must be 0. Completeness is a share that
+        should be 1. Quality is a number with a direction.
+
+  - name: org.kpi.Direction
+    kind: enum
+    variants: [Higher, Lower, Ignore]
+
+  # The three postures the design names. UNMAPPED: whether the set is closed. Taken: closed.
+  - name: org.kpi.Stance
+    kind: enum
+    variants: [Explore, Scale, Operate]
+    naming:
+      summary: >-
+        What an organization is doing with an offering: finding out whether it works, growing
+        it, or running it. An organization that explores accepts idle capacity that one that
+        operates does not.
+
+  - name: org.kpi.Source
+    kind: enum
+    variants: [Simulated, Observed]
+
+  - name: org.kpi.Window
+    kind: struct
+    fields:
+      - {name: from, type: Timestamp}
+      - {name: to, type: Timestamp}
+
+entities:
+  # UNMAPPED: whether a gate KPI always measures correctness. The design calls correctness "a
+  # count that must be 0" and a gate what "must be 0 for the design to be valid", and a rule with
+  # `gate: false` is still counted. Taken: no guard ties `gate` to `measures`. Open question.
+  - name: org.kpi.Kpi
+    naming:
+      summary: One KPI definition, read by the code that scores a simulated and an observed run alike.
+    identity:
+      name: kpi_id
+      type: org.shared.KpiId
+    fields:
+      - {name: name, type: org.shared.Name}
+      - {name: unit, type: org.kpi.Unit}
+      - {name: block, type: org.kpi.Block}
+      - {name: measures, type: org.kpi.Measures}
+      - {name: reads, type: List<org.kpi.EventName>}
+      - name: gate
+        type: Boolean
+        summary: A gate KPI must be zero for a design, or a variant of a search, to count.
+      - {name: defined_at, type: Timestamp}
+    lifecycle:
+      initial: Active
+      states: [Active, Retired]
+      terminal: [Retired]
+      transitions:
+        - {name: retire, from: [Active], to: Retired}
+
+  # UNMAPPED: "a posture changes directions and weights". Taken: the direction is a row of the
+  # posture here, and the weights are a list of the experiment that searches under it
+  # (org.experiment), as agenticspec holds them. Open question for the owner.
+  - name: org.kpi.Posture
+    naming:
+      summary: A stance (explore, scale, operate) under which each KPI has a direction.
+    identity:
+      name: posture_id
+      type: org.shared.PostureId
+    fields:
+      - {name: name, type: org.shared.Name}
+      - {name: stance, type: org.kpi.Stance}
+    relations:
+      - {name: directions, kind: owns, target: org.kpi.PostureDirection, cardinality: many, via: posture_id}
+    lifecycle:
+      initial: Active
+      states: [Active]
+      terminal: [Active]
+
+  # A KPI with no row in a posture has no direction there: a search does not weigh it.
+  - name: org.kpi.PostureDirection
+    naming:
+      summary: The direction one KPI has under one posture.
+    identity:
+      name: direction_id
+      type: org.kpi.DirectionId
+    fields:
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: direction, type: org.kpi.Direction}
+    relations:
+      - {name: kpi, kind: references, target: org.kpi.Kpi, cardinality: one, via: kpi_id}
+    lifecycle:
+      initial: Set
+      states: [Set]
+      terminal: [Set]
+
+  # A simulated measurement names the design revision that was simulated; an observed one names
+  # the window it was observed in, and the revision when the observed organization has one.
+  # UNMAPPED: the design reads a KPI "over a position, a role or a unit". A measurement here is
+  # one value for a whole design revision or window; it has no field naming the position, role or
+  # unit it was read over. Open question for the owner: add one (never a party), or keep one
+  # value per revision.
+  - name: org.kpi.Measurement
+    naming:
+      summary: One value of a KPI for a design revision or an observed window.
+    identity:
+      name: measurement_id
+      type: org.kpi.MeasurementId
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: revision_id, type: Optional<org.shared.DesignRevisionId>}
+      - {name: window, type: Optional<org.kpi.Window>}
+      - {name: value, type: Decimal}
+      - {name: source, type: org.kpi.Source}
+      - {name: recorded_at, type: Timestamp}
+    relations:
+      - {name: kpi, kind: references, target: org.kpi.Kpi, cardinality: one, via: kpi_id}
+      - {name: revision, kind: references, target: org.design.DesignRevision, cardinality: one, via: revision_id}
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+errors:
+  - name: org.kpi.NoSuchKpi
+    summary: No KPI has this id, and nothing changed.
+  - name: org.kpi.RetiredKpi
+    summary: The KPI is retired, so it takes no direction and no measurement, and nothing changed.
+  - name: org.kpi.KpiNameTaken
+    summary: A KPI of this name exists, and nothing was defined.
+  - name: org.kpi.NoEventsRead
+    summary: A KPI reads at least one event, and nothing was defined.
+  - name: org.kpi.NoSuchPosture
+    summary: No posture has this id, and nothing changed.
+  - name: org.kpi.PostureNameTaken
+    summary: A posture of this name exists, and nothing was created.
+  - name: org.kpi.DirectionExists
+    summary: The posture already gives this KPI a direction, and nothing changed.
+  - name: org.kpi.RevisionMissing
+    summary: A simulated measurement names the design revision that was simulated, and nothing was recorded.
+  - name: org.kpi.WindowMissing
+    summary: An observed measurement names the window it was observed in, and nothing was recorded.
+  - name: org.kpi.InvalidWindow
+    summary: A window ends after it starts, and nothing was recorded.
+  - name: org.kpi.NoSuchRevision
+    summary: No design revision has this id, and nothing was recorded.
+
+events:
+  - name: org.kpi.KpiDefined
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: name, type: org.shared.Name}
+      - {name: block, type: org.kpi.Block}
+      - {name: measures, type: org.kpi.Measures}
+      - {name: gate, type: Boolean}
+      - {name: at, type: Timestamp}
+  - name: org.kpi.KpiRetired
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: at, type: Timestamp}
+  - name: org.kpi.PostureCreated
+    fields:
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: name, type: org.shared.Name}
+      - {name: stance, type: org.kpi.Stance}
+      - {name: at, type: Timestamp}
+  - name: org.kpi.DirectionSet
+    fields:
+      - {name: direction_id, type: org.kpi.DirectionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: direction, type: org.kpi.Direction}
+      - {name: at, type: Timestamp}
+  - name: org.kpi.MeasurementRecorded
+    fields:
+      - {name: measurement_id, type: org.kpi.MeasurementId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: value, type: Decimal}
+      - {name: source, type: org.kpi.Source}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.kpi.DefineKpi
+    naming:
+      display: Define a KPI
+    input:
+      - {name: name, type: org.shared.Name}
+      - {name: unit, type: org.kpi.Unit}
+      - {name: block, type: org.kpi.Block}
+      - {name: measures, type: org.kpi.Measures}
+      - {name: reads, type: List<org.kpi.EventName>}
+      - {name: gate, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-events-read
+        when: reads.count == 0
+        error: org.kpi.NoEventsRead
+      - name: name-taken
+        when_related:
+          entity: org.kpi.Kpi
+          where: name == input.name
+          exists: true
+        error: org.kpi.KpiNameTaken
+      - name: defined
+        creates: org.kpi.Kpi
+        instance: kpi_id
+        sets:
+          name: input.name
+          unit: input.unit
+          block: input.block
+          measures: input.measures
+          reads: input.reads
+          gate: input.gate
+          defined_at: input.at
+        emits: [org.kpi.KpiDefined]
+        payload:
+          org.kpi.KpiDefined:
+            kpi_id: {generated: true}
+            name: input.name
+            block: input.block
+            measures: input.measures
+            gate: input.gate
+            at: input.at
+
+  # A retired KPI keeps its measurements and directions; it takes no new one.
+  - name: org.kpi.RetireKpi
+    naming:
+      display: Retire a KPI
+    input:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-kpi
+        unknown_instance: true
+        error: org.kpi.NoSuchKpi
+      - name: retired
+        moves: org.kpi.Kpi.retire
+        instance: kpi_id
+        emits: [org.kpi.KpiRetired]
+        payload:
+          org.kpi.KpiRetired:
+            kpi_id: input.kpi_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.kpi.RetiredKpi
+
+  - name: org.kpi.CreatePosture
+    naming:
+      display: Create a posture
+    input:
+      - {name: name, type: org.shared.Name}
+      - {name: stance, type: org.kpi.Stance}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: name-taken
+        when_related:
+          entity: org.kpi.Posture
+          where: name == input.name
+          exists: true
+        error: org.kpi.PostureNameTaken
+      - name: created
+        creates: org.kpi.Posture
+        instance: posture_id
+        sets:
+          name: input.name
+          stance: input.stance
+        emits: [org.kpi.PostureCreated]
+        payload:
+          org.kpi.PostureCreated:
+            posture_id: {generated: true}
+            name: input.name
+            stance: input.stance
+            at: input.at
+
+  # One direction per KPI and posture; a second is refused, never overwritten.
+  - name: org.kpi.SetDirection
+    naming:
+      display: Give a KPI a direction under a posture
+    input:
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: direction, type: org.kpi.Direction}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-posture
+        when_related: {via: input.posture_id, exists: false}
+        error: org.kpi.NoSuchPosture
+      - name: no-such-kpi
+        when_related: {via: input.kpi_id, exists: false}
+        error: org.kpi.NoSuchKpi
+      - name: kpi-retired
+        when_related: {via: input.kpi_id, predicate: state == Retired}
+        error: org.kpi.RetiredKpi
+      - name: direction-exists
+        when_related:
+          entity: org.kpi.PostureDirection
+          where:
+            all:
+              - posture_id == input.posture_id
+              - kpi_id == input.kpi_id
+          exists: true
+        error: org.kpi.DirectionExists
+      - name: set
+        creates: org.kpi.PostureDirection
+        instance: direction_id
+        sets:
+          posture_id: input.posture_id
+          kpi_id: input.kpi_id
+          direction: input.direction
+        emits: [org.kpi.DirectionSet]
+        payload:
+          org.kpi.DirectionSet:
+            direction_id: {generated: true}
+            posture_id: input.posture_id
+            kpi_id: input.kpi_id
+            direction: input.direction
+            at: input.at
+
+  - name: org.kpi.RecordMeasurement
+    naming:
+      display: Record a measurement
+    input:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: revision_id, type: Optional<org.shared.DesignRevisionId>}
+      - {name: window, type: Optional<org.kpi.Window>}
+      - {name: value, type: Decimal}
+      - {name: source, type: org.kpi.Source}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: revision-missing
+        when:
+          all:
+            - source == Simulated
+            - not defined(revision_id)
+        error: org.kpi.RevisionMissing
+      - name: window-missing
+        when:
+          all:
+            - source == Observed
+            - not defined(window)
+        error: org.kpi.WindowMissing
+      - name: invalid-window
+        when:
+          all:
+            - defined(window)
+            - window.to <= window.from
+        error: org.kpi.InvalidWindow
+      - name: no-such-kpi
+        when_related: {via: input.kpi_id, exists: false}
+        error: org.kpi.NoSuchKpi
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.kpi.NoSuchRevision
+      - name: kpi-retired
+        when_related: {via: input.kpi_id, predicate: state == Retired}
+        error: org.kpi.RetiredKpi
+      - name: recorded
+        creates: org.kpi.Measurement
+        instance: measurement_id
+        sets:
+          kpi_id: input.kpi_id
+          revision_id: input.revision_id
+          window: input.window
+          value: input.value
+          source: input.source
+          recorded_at: input.at
+        emits: [org.kpi.MeasurementRecorded]
+        payload:
+          org.kpi.MeasurementRecorded:
+            measurement_id: {generated: true}
+            kpi_id: input.kpi_id
+            value: input.value
+            source: input.source
+            at: input.at
+
+views:
+  - name: org.kpi.Kpis
+    source: org.kpi.Kpi
+    consistency: read_your_writes
+    fields:
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: name, type: org.shared.Name}
+      - {name: unit, type: org.kpi.Unit}
+      - {name: block, type: org.kpi.Block}
+      - {name: measures, type: org.kpi.Measures}
+      - {name: reads, type: List<org.kpi.EventName>}
+      - {name: gate, type: Boolean}
+      - {name: defined_at, type: Timestamp}
+      - {name: state, type: org.kpi.Kpi.State}
+
+  # The directions of one posture.
+  - name: org.kpi.Directions
+    source: org.kpi.PostureDirection
+    consistency: read_your_writes
+    params:
+      - {name: posture_id, type: org.shared.PostureId}
+    filter: posture_id == param.posture_id
+    fields:
+      - {name: direction_id, type: org.kpi.DirectionId}
+      - {name: posture_id, type: org.shared.PostureId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: direction, type: org.kpi.Direction}
+
+  # Predicted beside measured: the measurements of one KPI, simulated and observed.
+  - name: org.kpi.Measurements
+    source: org.kpi.Measurement
+    consistency: read_your_writes
+    params:
+      - {name: kpi_id, type: org.shared.KpiId}
+    filter: kpi_id == param.kpi_id
+    fields:
+      - {name: measurement_id, type: org.kpi.MeasurementId}
+      - {name: kpi_id, type: org.shared.KpiId}
+      - {name: revision_id, type: Optional<org.shared.DesignRevisionId>}
+      - {name: window, type: Optional<org.kpi.Window>}
+      - {name: value, type: Decimal}
+      - {name: source, type: org.kpi.Source}
+      - {name: recorded_at, type: Timestamp}

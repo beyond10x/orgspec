@@ -1,0 +1,170 @@
+# An invented bakery decides the price of a loaf. The right belongs to the head baker (a
+# position), so the counter position is refused; an answer that is no option is refused; the head
+# baker's answer is taken. A decided decision then refuses to be decided, taken on default and
+# withdrawn.
+#
+#   0201 party, 0202 organization, 0203 unit `shop`, 0204 decision class `prices`,
+#   0205 decision right, 0206 decision, 0211 position head-baker, 0212 position counter
+type: ess-scenario/7
+domain: org.decision
+scenario: bakery-decision-decided
+summary: Only the deciding position decides, only among the options; a decided decision refuses every further command (DecisionStateConflict).
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.party.RegisterParty
+    input:
+      party_id: 00000000-0000-4000-8000-000000000201
+      kind: Organization
+      name: bakery
+      at: 2026-11-27T09:00:00Z
+    outcome: registered
+  - at: 2026-11-27T09:00:01Z
+    command: org.organization.FoundOrganization
+    input:
+      organization_id: 00000000-0000-4000-8000-000000000202
+      party_id: 00000000-0000-4000-8000-000000000201
+      name: bakery
+      purpose: Bakes bread and sells it over the counter.
+      form: Company
+      at: 2026-11-27T09:00:01Z
+    outcome: founded
+  - at: 2026-11-27T09:00:02Z
+    command: org.unit.FormUnit
+    input:
+      unit_id: 00000000-0000-4000-8000-000000000203
+      organization_id: 00000000-0000-4000-8000-000000000202
+      name: shop
+      nature: Line
+      basis: Offering
+      at: 2026-11-27T09:00:02Z
+    outcome: formed
+  - at: 2026-11-27T09:00:03Z
+    command: org.decision.DeclareDecisionClass
+    input:
+      class_id: 00000000-0000-4000-8000-000000000204
+      organization_id: 00000000-0000-4000-8000-000000000202
+      name: prices
+      reversible: true
+      at: 2026-11-27T09:00:03Z
+    outcome: declared
+  - at: 2026-11-27T09:00:04Z
+    command: org.decision.ProposeDecisionRight
+    input:
+      right_id: 00000000-0000-4000-8000-000000000205
+      class_id: 00000000-0000-4000-8000-000000000204
+      scope: 00000000-0000-4000-8000-000000000203
+      decider: {position: 00000000-0000-4000-8000-000000000211}
+      class_reversible: true
+      mode: Sole
+      consulted: [00000000-0000-4000-8000-000000000212]
+      informed: []
+      at: 2026-11-27T09:00:04Z
+    outcome: proposed
+  - at: 2026-11-27T09:00:05Z
+    command: org.decision.EnactDecisionRight
+    input: {right_id: 00000000-0000-4000-8000-000000000205, at: 2026-11-27T09:00:05Z}
+    outcome: enacted
+  - at: 2026-11-27T09:00:06Z
+    command: org.decision.OpenDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      right_id: 00000000-0000-4000-8000-000000000205
+      question: What does a loaf cost from Monday?
+      options: ["3.20", "3.50", "3.80"]
+      default_option: "3.20"
+      due: 2026-11-27T12:00:00Z
+      at: 2026-11-27T09:00:06Z
+    outcome: opened
+
+  # the counter position holds no right
+  - at: 2026-11-27T09:00:07Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      chosen: "3.50"
+      decided_by: 00000000-0000-4000-8000-000000000212
+      at: 2026-11-27T09:00:07Z
+    outcome: not-the-decider
+    error:
+      name: org.decision.NotTheDecider
+      fields:
+        right_id: 00000000-0000-4000-8000-000000000205
+        decided_by: 00000000-0000-4000-8000-000000000212
+    no_events: [org.decision.DecisionTaken]
+  # an answer that is no option
+  - at: 2026-11-27T09:00:08Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      chosen: "4.00"
+      decided_by: 00000000-0000-4000-8000-000000000211
+      at: 2026-11-27T09:00:08Z
+    outcome: chosen-not-an-option
+    error:
+      name: org.decision.ChosenNotAnOption
+      fields: {chosen: "4.00"}
+    no_events: [org.decision.DecisionTaken]
+  # the head baker decides
+  - at: 2026-11-27T09:00:09Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      chosen: "3.50"
+      decided_by: 00000000-0000-4000-8000-000000000211
+      at: 2026-11-27T09:00:09Z
+    outcome: decided
+    events:
+      - event: org.decision.DecisionTaken
+        payload:
+          decision_id: 00000000-0000-4000-8000-000000000206
+          class_id: 00000000-0000-4000-8000-000000000204
+          scope: 00000000-0000-4000-8000-000000000203
+          right_id: 00000000-0000-4000-8000-000000000205
+          chosen: "3.50"
+          decided_by: 00000000-0000-4000-8000-000000000211
+          at: 2026-11-27T09:00:09Z
+
+  # a decided decision is not edited
+  - at: 2026-11-27T09:00:10Z
+    command: org.decision.DecideDecision
+    input:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      chosen: "3.80"
+      decided_by: 00000000-0000-4000-8000-000000000211
+      at: 2026-11-27T09:00:10Z
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000206, state: Decided}
+    no_events: [org.decision.DecisionTaken]
+  - at: 2026-11-27T12:00:01Z
+    command: org.decision.TakeDecisionOnDefault
+    input: {decision_id: 00000000-0000-4000-8000-000000000206, at: 2026-11-27T12:00:01Z}
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000206, state: Decided}
+    no_events: [org.decision.DecisionTakenOnDefault]
+  - at: 2026-11-27T12:00:02Z
+    command: org.decision.WithdrawDecision
+    input: {decision_id: 00000000-0000-4000-8000-000000000206, at: 2026-11-27T12:00:02Z}
+    outcome: wrong-state
+    error:
+      name: org.decision.DecisionStateConflict
+      fields: {decision_id: 00000000-0000-4000-8000-000000000206, state: Decided}
+    no_events: [org.decision.DecisionWithdrawn]
+
+assert:
+  - view: org.decision.Decisions
+    contains:
+      decision_id: 00000000-0000-4000-8000-000000000206
+      right_id: 00000000-0000-4000-8000-000000000205
+      chosen: "3.50"
+      decided_by: 00000000-0000-4000-8000-000000000211
+      closed_at: 2026-11-27T09:00:09Z
+      state: Decided
+  - view: org.decision.Decisions
+    counts:
+      at_least: 1
+      at_most: 1

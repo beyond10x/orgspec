@@ -1,0 +1,9 @@
+format: orgspec-type/1
+type: upper
+origin: invented
+extends: [lower]
+summary: Declares a kind the extended type has, and one kind twice.
+kinds:
+  desk: { block: unit }
+  shelf: { block: asset }
+  shelf: { block: asset }

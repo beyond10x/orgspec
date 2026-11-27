@@ -1,0 +1,25 @@
+format: orgspec-organization/1
+organization: broken-class_without_decider
+type: base
+origin: invented
+summary: "Valid except that nobody decides the decision class a forum settles."
+
+parts:
+  shop:   { block: organization, form: company }
+  owners: { block: unit, nature: governing, in: shop }
+  floor:  { block: unit, nature: line, basis: function, in: shop }
+  lead:   { block: position, in: floor }
+  hand:   { block: position, in: floor, seats: 3 }
+  goods:  { block: offering, audience: external }
+  buyers: { block: relationship, tie: customer }
+  spend:  { block: decision_class }
+  weekly: { block: forum, convenes: floor, every: 1w }
+
+links:
+  - { from: hand,   to: lead,   carries: reports_to }
+  - { from: lead,   to: owners, carries: reports_to }
+  - { from: lead,   to: goods,  carries: accountable }
+  - { from: buyers, to: goods,  carries: demand }
+  - { from: weekly, to: spend,  carries: settles }
+
+border: [lead]

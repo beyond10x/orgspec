@@ -1,0 +1,769 @@
+# Type: an organization type as rows. Source: design/organization-types.md, § "A type document"
+# (kinds, links, rules, defaults) and § "Checking" ("org.type holds a type as rows (kinds, rules,
+# defaults, revisions)"). A type document is lowered to commands of this domain in a fixed order:
+# declare the type, open a revision, declare its kinds, link names, rules and defaults, publish.
+# What a guard here cannot hold, `orgspec type check` holds; each such rule is marked UNMAPPED.
+domain: org.type
+
+summary: >-
+  An organization type as data. A type narrows the building blocks for one kind of organization:
+  it names kinds of a block, adds names a link may carry, adds rules and adds defaults. A type is
+  edited as rows of a draft revision; publishing freezes the revision, and a later publication
+  supersedes it. A published revision is never changed. A type only adds: no row removes or
+  loosens a rule.
+
+naming:
+  wire: type
+  display: Organization type
+
+types:
+  # org.shared declares no identifier for a kind, a link name, a rule or a default row; only this
+  # domain addresses them. Reported as candidates for org.shared.
+  - {name: org.type.KindId, kind: newtype, of: Uuid}
+  - {name: org.type.LinkNameId, kind: newtype, of: Uuid}
+  - {name: org.type.RuleRowId, kind: newtype, of: Uuid}
+  - {name: org.type.DefaultRowId, kind: newtype, of: Uuid}
+
+  # The id a type document gives a rule or a default (`agent_position_escalates`). It is the name
+  # of a KPI: the count of the rule's violations, or of the links a default added.
+  # UNMAPPED: the design says "snake case". Taken: text; `orgspec type check` holds the spelling.
+  - name: org.type.RuleName
+    kind: newtype
+    of: String
+    naming:
+      summary: The id of a rule or a default inside a type document, unique among the rules it is checked with.
+
+  # The blocks a part of a design may instantiate, so the blocks a kind may belong to. The list is
+  # the one of design/building-blocks.md § "An organization design document"; org.design reads it
+  # from here. It belongs in org.shared.
+  - name: org.type.Block
+    kind: enum
+    variants: [Organization, Unit, Role, Position, DecisionClass, Policy, Offering, Relationship, Goal, Asset, Budget, Process, Agreement, Forum, Channel, Risk, Obligation]
+    naming:
+      summary: A building block a design may have parts of and a type may name kinds of.
+
+  # The closed vocabulary of rule forms, design/organization-types.md § "rules". A form outside it
+  # is not a value of this type, so the refusal "a rule form outside the vocabulary" needs no guard.
+  - name: org.type.RuleForm
+    kind: enum
+    variants: [Parts, Links, Forbid, Separate, Within, Span, Depth, Value]
+    naming:
+      summary: >-
+        What a rule bounds: the number of parts, the number of links of a part, a link that must
+        not exist, two links one part must not both have, the scope both ends of a link lie in,
+        the span of a position, the depth of the reporting tree, or the value of a field.
+
+entities:
+  # Here they sit on the type, and the design resolves them by name, not by revision
+  # The brief lists them on the type, and the design resolves them by name, not by revision
+  # (organization-types.md, open question Q1). Taken: on the type, and fixed once a revision of
+  # the type is published (ExtendType, `revision-published`). Open question for the owner.
+  - name: org.type.Type
+    naming:
+      summary: One kind of organization, named, with the types it extends. Its content is the rows of its revisions.
+    identity:
+      name: type_id
+      type: org.shared.TypeId
+    fields:
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - name: extends
+        type: List<org.shared.TypeId>
+        summary: The types this type narrows. An organization of this type is a valid organization of each.
+      - {name: declared_at, type: Timestamp}
+    relations:
+      - {name: extended, kind: references, target: org.type.Type, cardinality: many, via: extends}
+      - {name: revisions, kind: owns, target: org.type.TypeRevision, cardinality: many, via: type_id}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  - name: org.type.TypeRevision
+    naming:
+      summary: One version of a type's kinds, link names, rules and defaults. Edited while Draft, frozen when Published.
+    identity:
+      name: revision_id
+      type: org.shared.TypeRevisionId
+    fields:
+      - {name: type_id, type: org.shared.TypeId}
+      - name: number
+        type: Integer
+        summary: 1 for the first revision of a type, one more for each next. Minted.
+      - {name: opened_at, type: Timestamp}
+      - {name: published_at, type: Optional<Timestamp>}
+    invariants:
+      - number >= 1
+    relations:
+      - {name: kinds, kind: owns, target: org.type.Kind, cardinality: many, via: revision_id}
+      - {name: link_names, kind: owns, target: org.type.LinkName, cardinality: many, via: revision_id}
+      - {name: rules, kind: owns, target: org.type.Rule, cardinality: many, via: revision_id}
+      - {name: defaults, kind: owns, target: org.type.Default, cardinality: many, via: revision_id}
+    lifecycle:
+      initial: Draft
+      states:
+        - {name: Draft, summary: "Takes kinds, link names, rules and defaults."}
+        - {name: Published, summary: "Frozen. A design revision may be committed under it."}
+        - {name: Superseded, summary: "Frozen, and a later revision of the type is published."}
+      terminal: [Superseded]
+      transitions:
+        - {name: publish, from: [Draft], to: Published}
+        - {name: supersede, from: [Published], to: Superseded}
+
+  # A kind is a name for parts of one block ("squad" for a unit). A part of the kind counts as a
+  # part of every kind it refines.
+  # UNMAPPED: the dimensions a kind fixes (`nature`, `basis`, `class`, `reversible`) and its
+  # `attributes` (extra fields with a type and `required`) have no row here beside (name,
+  # block, the kind it refines), and so do the refusals `kind_dimension_mismatch` and
+  # `unknown_attribute` and "a kind that fixes a dimension its block does not have". Taken: not
+  # held here; `orgspec type check` and `orgspec check` read them from the type document.
+  - name: org.type.Kind
+    naming:
+      summary: A name a type gives to parts of one block, optionally refining another kind of that block.
+    identity:
+      name: kind_id
+      type: org.type.KindId
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.KindName}
+      - {name: block, type: org.type.Block}
+      - name: refines
+        type: Optional<org.type.KindId>
+        summary: The kind of the same block this kind narrows (`is` in a type document).
+      - {name: summary, type: String}
+    relations:
+      - {name: refined, kind: references, target: org.type.Kind, cardinality: one, via: refines}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  - name: org.type.LinkName
+    naming:
+      summary: A name the type adds to what a link of a design may carry. A generic tool draws it and applies no rule to it.
+    identity:
+      name: link_name_id
+      type: org.type.LinkNameId
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  # The body is the rule as the type document writes it (its selectors and bounds), as text the
+  # checker reads. This domain holds the id, the form and the gate, which a guard can read.
+  - name: org.type.Rule
+    naming:
+      summary: One rule of a type. Its id names a KPI, the count of its violations; a gate must be 0 for a design to be valid.
+    identity:
+      name: rule_row_id
+      type: org.type.RuleRowId
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - name: type_id
+        type: org.shared.TypeId
+        summary: The type of the revision, repeated so that a guard reads a rule's history across the revisions of one type.
+      - {name: rule_id, type: org.type.RuleName}
+      - {name: form, type: org.type.RuleForm}
+      - name: gate
+        type: Boolean
+        summary: True, a violation makes a design invalid. False, violations are counted and reported and refuse nothing.
+      - {name: summary, type: String}
+      - {name: body, type: String}
+    relations:
+      - {name: type, kind: references, target: org.type.Type, cardinality: one, via: type_id}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+  # A default adds a link a design did not write, before the rules are checked. Its id names a
+  # KPI, the count of links it added.
+  - name: org.type.Default
+    naming:
+      summary: One default of a type, a link assumed where a design leaves it unsaid.
+    identity:
+      name: default_row_id
+      type: org.type.DefaultRowId
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: default_id, type: org.type.RuleName}
+      - name: carries
+        type: org.shared.Name
+        summary: What the added link carries.
+      - {name: summary, type: String}
+      - {name: body, type: String}
+    lifecycle:
+      initial: Declared
+      states: [Declared]
+      terminal: [Declared]
+
+errors:
+  - name: org.type.NoSuchType
+    summary: No type has this id, and nothing changed.
+  - name: org.type.TypeNameTaken
+    summary: A type of this name exists, and nothing was declared.
+  - name: org.type.TypeExtendsItself
+    summary: A type extends other types, never itself, and nothing changed.
+  - name: org.type.NoSuchRevision
+    summary: No type revision has this id, and nothing changed.
+  - name: org.type.RevisionOfOtherType
+    summary: The revision belongs to another type than the one named, and nothing changed.
+  - name: org.type.DraftRevisionOpen
+    summary: The type already has a draft revision, and no second one was opened.
+  - name: org.type.PublishedRevisionChanged
+    summary: The revision is published or superseded, so it takes no change, and nothing changed.
+  - name: org.type.NoSuchKind
+    summary: No kind has this id, and nothing changed.
+  - name: org.type.KindDeclaredTwice
+    summary: The revision already declares a kind of this name, and nothing was declared.
+  - name: org.type.KindRefinesItself
+    summary: A kind refines another kind, never itself, and nothing changed.
+  - name: org.type.KindRefinesOtherBlock
+    summary: A kind refines a kind of its own block, and the kind named belongs to another block; nothing changed.
+  - name: org.type.LinkDeclaredTwice
+    summary: The blocks or the revision already use this link name, and nothing was declared.
+  - name: org.type.RuleDeclaredTwice
+    summary: The revision already declares a rule of this id, and nothing was declared.
+  - name: org.type.GateLoosened
+    summary: An earlier revision of the type declares this rule as a gate, and a later one may not turn the gate off; nothing was declared.
+  - name: org.type.DefaultDeclaredTwice
+    summary: The revision already declares a default of this id, and nothing was declared.
+
+events:
+  - name: org.type.TypeDeclared
+    fields:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+  - name: org.type.TypeExtended
+    fields:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: extended_type_id, type: org.shared.TypeId}
+      - {name: at, type: Timestamp}
+  - name: org.type.RevisionOpened
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: number, type: Integer}
+      - {name: at, type: Timestamp}
+  - name: org.type.KindDeclared
+    fields:
+      - {name: kind_id, type: org.type.KindId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.KindName}
+      - {name: block, type: org.type.Block}
+      - {name: at, type: Timestamp}
+  - name: org.type.KindRefined
+    fields:
+      - {name: kind_id, type: org.type.KindId}
+      - {name: refines, type: org.type.KindId}
+      - {name: at, type: Timestamp}
+  - name: org.type.LinkNameDeclared
+    fields:
+      - {name: link_name_id, type: org.type.LinkNameId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+  - name: org.type.RuleDeclared
+    fields:
+      - {name: rule_row_id, type: org.type.RuleRowId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: rule_id, type: org.type.RuleName}
+      - {name: form, type: org.type.RuleForm}
+      - {name: gate, type: Boolean}
+      - {name: at, type: Timestamp}
+  - name: org.type.DefaultDeclared
+    fields:
+      - {name: default_row_id, type: org.type.DefaultRowId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: default_id, type: org.type.RuleName}
+      - {name: carries, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+  - name: org.type.RevisionPublished
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # `base`, the type with no kinds and no rules, is declared like any other and extends nothing.
+  # UNMAPPED: "every type extends `base`, directly or through another type". A guard follows no
+  # chain of rows and `base` is a name, not a value. `orgspec type check` holds it.
+  - name: org.type.DeclareType
+    naming:
+      display: Declare an organization type
+    input:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: name-taken
+        when_related:
+          entity: org.type.Type
+          where: name == input.name
+          exists: true
+        error: org.type.TypeNameTaken
+      - name: declared
+        creates: org.type.Type
+        instance: type_id
+        sets:
+          name: input.name
+          summary: input.summary
+          extends: []
+          declared_at: input.at
+        emits: [org.type.TypeDeclared]
+        payload:
+          org.type.TypeDeclared:
+            type_id: input.type_id
+            name: input.name
+            at: input.at
+
+  # One more type this type narrows. A command of its own, not a list on DeclareType: a creating
+  # command that guards on another row of its own entity gets no synthesized scenario.
+  # UNMAPPED: a cycle of `extends` longer than one type (a extends b, b extends a). A guard
+  # follows no chain of rows; `orgspec type check` refuses it. Only a type extending itself is
+  # refused here.
+  - name: org.type.ExtendType
+    naming:
+      display: Let a type extend another type
+    input:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: extended_type_id, type: org.shared.TypeId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: extends-itself
+        when: type_id == extended_type_id
+        error: org.type.TypeExtendsItself
+      - name: no-such-type
+        unknown_instance: true
+        error: org.type.NoSuchType
+      - name: no-such-extended-type
+        when_related: {via: input.extended_type_id, exists: false}
+        error: org.type.NoSuchType
+      - name: revision-published
+        when_related:
+          entity: org.type.TypeRevision
+          where:
+            all:
+              - type_id == input.type_id
+              - state != Draft
+          exists: true
+        error: org.type.PublishedRevisionChanged
+      - name: extended
+        updates: org.type.Type
+        instance: type_id
+        sets:
+          extends: {append: input.extended_type_id}
+        emits: [org.type.TypeExtended]
+        payload:
+          org.type.TypeExtended:
+            type_id: input.type_id
+            extended_type_id: input.extended_type_id
+            at: input.at
+
+  # One draft per type at a time, so the revisions of a type are in one order.
+  # UNMAPPED: "the number is 1 for the first revision and one more for each next". `generated`
+  # leaves the value to the implementation, and a guard counts no rows; the reference target mints
+  # another value. The order of revisions is read from `opened_at`.
+  - name: org.type.OpenRevision
+    naming:
+      display: Open a draft revision of a type
+    input:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-type
+        when_related: {via: input.type_id, exists: false}
+        error: org.type.NoSuchType
+      - name: draft-open
+        when_related:
+          entity: org.type.TypeRevision
+          where:
+            all:
+              - type_id == input.type_id
+              - state == Draft
+          exists: true
+        error: org.type.DraftRevisionOpen
+      - name: opened
+        creates: org.type.TypeRevision
+        instance: revision_id
+        sets:
+          type_id: input.type_id
+          number: {generated: true}
+          opened_at: input.at
+        emits: [org.type.RevisionOpened]
+        payload:
+          org.type.RevisionOpened:
+            revision_id: {generated: true}
+            type_id: input.type_id
+            number: {generated: true}
+            at: input.at
+
+  # UNMAPPED: `kind_declared_twice` across the types a type extends ("a kind name is unique across
+  # the types a type extends"). A guard does not follow `extends`. Here a name is unique inside
+  # one revision; `orgspec type check` holds the rest.
+  - name: org.type.DeclareKind
+    naming:
+      display: Declare a kind
+    input:
+      - {name: kind_id, type: org.type.KindId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.KindName}
+      - {name: block, type: org.type.Block}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.type.NoSuchRevision
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.type.PublishedRevisionChanged
+      - name: declared-twice
+        when_related:
+          entity: org.type.Kind
+          where:
+            all:
+              - revision_id == input.revision_id
+              - name == input.name
+          exists: true
+        error: org.type.KindDeclaredTwice
+      - name: declared
+        creates: org.type.Kind
+        instance: kind_id
+        sets:
+          revision_id: input.revision_id
+          name: input.name
+          block: input.block
+          summary: input.summary
+        emits: [org.type.KindDeclared]
+        payload:
+          org.type.KindDeclared:
+            kind_id: input.kind_id
+            revision_id: input.revision_id
+            name: input.name
+            block: input.block
+            at: input.at
+
+  # `is` of a type document: this kind narrows another kind of the same block. The kind refined
+  # may be a row of another type's revision.
+  # UNMAPPED: that the kind refined is declared by this type or by a type it extends, and that
+  # `is` closes no cycle longer than one kind. Both follow a chain; `orgspec type check` holds them.
+  - name: org.type.RefineKind
+    naming:
+      display: Let a kind refine another kind
+    input:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: kind_id, type: org.type.KindId}
+      - {name: refines, type: org.type.KindId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: refines-itself
+        when: kind_id == refines
+        error: org.type.KindRefinesItself
+      - name: no-such-kind
+        unknown_instance: true
+        error: org.type.NoSuchKind
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.type.NoSuchRevision
+      - name: missing-kind
+        when_related: {via: input.kind_id, exists: false}
+        error: org.type.NoSuchKind
+      - name: no-such-refined-kind
+        when_related: {via: input.refines, exists: false}
+        error: org.type.NoSuchKind
+      - name: kind-of-other-revision
+        when_related: {via: input.kind_id, predicate: revision_id != input.revision_id}
+        error: org.type.NoSuchKind
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.type.PublishedRevisionChanged
+      - name: other-block
+        when_related:
+          entity: org.type.Kind
+          where:
+            all:
+              - kind_id == input.refines
+              - block != subject.block
+          exists: true
+        error: org.type.KindRefinesOtherBlock
+      - name: refined
+        updates: org.type.Kind
+        instance: kind_id
+        sets:
+          refines: input.refines
+        emits: [org.type.KindRefined]
+        payload:
+          org.type.KindRefined:
+            kind_id: input.kind_id
+            refines: input.refines
+            at: input.at
+
+  # A name the blocks already use is refused with the names of this revision (`link_declared_twice`).
+  # UNMAPPED: a name an extended type already uses. A guard does not follow `extends`.
+  - name: org.type.DeclareLinkName
+    naming:
+      display: Declare a link name
+    input:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: used-by-the-blocks
+        when:
+          name: {in: [reports_to, answers_to, accountable, responsible, consulted, informed, decides, delegates, settles, demand, serves, hands_off, escalates, funds]}
+        error: org.type.LinkDeclaredTwice
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.type.NoSuchRevision
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.type.PublishedRevisionChanged
+      - name: declared-twice
+        when_related:
+          entity: org.type.LinkName
+          where:
+            all:
+              - revision_id == input.revision_id
+              - name == input.name
+          exists: true
+        error: org.type.LinkDeclaredTwice
+      - name: declared
+        creates: org.type.LinkName
+        instance: link_name_id
+        sets:
+          revision_id: input.revision_id
+          name: input.name
+          summary: input.summary
+        emits: [org.type.LinkNameDeclared]
+        payload:
+          org.type.LinkNameDeclared:
+            link_name_id: {generated: true}
+            revision_id: input.revision_id
+            name: input.name
+            at: input.at
+
+  # UNMAPPED: a rule id "unique across the extended types", a `gate: true` of an extended type
+  # turned to `false`, and "bounds that cannot hold together". Each follows `extends` or reads the
+  # body; `orgspec type check` holds them. Here: an id is unique inside one revision, and a rule
+  # that an earlier revision of the same type declares as a gate is not declared with the gate off.
+  # UNMAPPED: `gate_loosened` by omission. A later revision that leaves the rule out declares no
+  # row a guard could refuse; `orgspec type check` compares the two revisions.
+  - name: org.type.DeclareRule
+    naming:
+      display: Declare a rule
+    input:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: rule_id, type: org.type.RuleName}
+      - {name: form, type: org.type.RuleForm}
+      - {name: gate, type: Boolean}
+      - {name: summary, type: String}
+      - {name: body, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.type.NoSuchRevision
+      - name: revision-of-other-type
+        when_related: {via: input.revision_id, predicate: type_id != input.type_id}
+        error: org.type.RevisionOfOtherType
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.type.PublishedRevisionChanged
+      - name: declared-twice
+        when_related:
+          entity: org.type.Rule
+          where:
+            all:
+              - revision_id == input.revision_id
+              - rule_id == input.rule_id
+          exists: true
+        error: org.type.RuleDeclaredTwice
+      - name: gate-loosened
+        when: gate == false
+        when_related:
+          entity: org.type.Rule
+          where:
+            all:
+              - type_id == input.type_id
+              - revision_id != input.revision_id
+              - rule_id == input.rule_id
+              - gate == true
+          exists: true
+        error: org.type.GateLoosened
+      - name: declared
+        creates: org.type.Rule
+        instance: rule_row_id
+        sets:
+          revision_id: input.revision_id
+          type_id: input.type_id
+          rule_id: input.rule_id
+          form: input.form
+          gate: input.gate
+          summary: input.summary
+          body: input.body
+        emits: [org.type.RuleDeclared]
+        payload:
+          org.type.RuleDeclared:
+            rule_row_id: {generated: true}
+            revision_id: input.revision_id
+            rule_id: input.rule_id
+            form: input.form
+            gate: input.gate
+            at: input.at
+
+  # UNMAPPED: the design names no refusal for a default id declared twice, and does not say
+  # whether defaults and rules share one set of ids (both name a KPI). Taken: an id is unique
+  # among the defaults of one revision, refused as DefaultDeclaredTwice. Open question for the owner.
+  - name: org.type.DeclareDefault
+    naming:
+      display: Declare a default
+    input:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: default_id, type: org.type.RuleName}
+      - {name: carries, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: body, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        when_related: {via: input.revision_id, exists: false}
+        error: org.type.NoSuchRevision
+      - name: revision-not-draft
+        when_related: {via: input.revision_id, predicate: state != Draft}
+        error: org.type.PublishedRevisionChanged
+      - name: declared-twice
+        when_related:
+          entity: org.type.Default
+          where:
+            all:
+              - revision_id == input.revision_id
+              - default_id == input.default_id
+          exists: true
+        error: org.type.DefaultDeclaredTwice
+      - name: declared
+        creates: org.type.Default
+        instance: default_row_id
+        sets:
+          revision_id: input.revision_id
+          default_id: input.default_id
+          carries: input.carries
+          summary: input.summary
+          body: input.body
+        emits: [org.type.DefaultDeclared]
+        payload:
+          org.type.DefaultDeclared:
+            default_row_id: {generated: true}
+            revision_id: input.revision_id
+            default_id: input.default_id
+            carries: input.carries
+            at: input.at
+
+  # Freeze the draft. A revision with no row publishes: `base` has none. The revision of the same
+  # type that was published before is superseded by the same outcome.
+  - name: org.type.PublishRevision
+    naming:
+      display: Publish a type revision
+    input:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-revision
+        unknown_instance: true
+        error: org.type.NoSuchRevision
+      - name: published
+        moves: org.type.TypeRevision.publish
+        instance: revision_id
+        sets:
+          published_at: input.at
+        affects:
+          - entity: org.type.TypeRevision
+            where:
+              all:
+                - type_id == subject.type_id
+                - state == Published
+            moves: org.type.TypeRevision.supersede
+        emits: [org.type.RevisionPublished]
+        payload:
+          org.type.RevisionPublished:
+            revision_id: input.revision_id
+            type_id: {subject: type_id}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.type.PublishedRevisionChanged
+
+views:
+  - name: org.type.Types
+    source: org.type.Type
+    consistency: read_your_writes
+    fields:
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: extends, type: List<org.shared.TypeId>}
+      - {name: declared_at, type: Timestamp}
+
+  - name: org.type.Revisions
+    source: org.type.TypeRevision
+    consistency: read_your_writes
+    fields:
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: number, type: Integer}
+      - {name: opened_at, type: Timestamp}
+      - {name: published_at, type: Optional<Timestamp>}
+      - {name: state, type: org.type.TypeRevision.State}
+
+  - name: org.type.Kinds
+    source: org.type.Kind
+    consistency: read_your_writes
+    fields:
+      - {name: kind_id, type: org.type.KindId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.KindName}
+      - {name: block, type: org.type.Block}
+      - {name: refines, type: Optional<org.type.KindId>}
+      - {name: summary, type: String}
+
+  - name: org.type.LinkNames
+    source: org.type.LinkName
+    consistency: read_your_writes
+    fields:
+      - {name: link_name_id, type: org.type.LinkNameId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: name, type: org.shared.Name}
+      - {name: summary, type: String}
+
+  # The rules of a type are the gate KPIs a design of the type is checked with.
+  - name: org.type.Rules
+    source: org.type.Rule
+    consistency: read_your_writes
+    fields:
+      - {name: rule_row_id, type: org.type.RuleRowId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: type_id, type: org.shared.TypeId}
+      - {name: rule_id, type: org.type.RuleName}
+      - {name: form, type: org.type.RuleForm}
+      - {name: gate, type: Boolean}
+      - {name: summary, type: String}
+      - {name: body, type: String}
+
+  - name: org.type.Defaults
+    source: org.type.Default
+    consistency: read_your_writes
+    fields:
+      - {name: default_row_id, type: org.type.DefaultRowId}
+      - {name: revision_id, type: org.shared.TypeRevisionId}
+      - {name: default_id, type: org.type.RuleName}
+      - {name: carries, type: org.shared.Name}
+      - {name: summary, type: String}
+      - {name: body, type: String}

@@ -1,0 +1,5 @@
+format: orgspec-type/1
+type: lower
+origin: invented
+kinds:
+  desk: { block: unit }

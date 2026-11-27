@@ -1,0 +1,488 @@
+domain: org.relationship
+
+summary: >-
+  A party outside the organization and the tie to it: customer, supplier, partner, regulator,
+  funder or beneficiary. A relationship starts as a prospect, becomes active, may be suspended
+  and ends. An engagement says which offering the party takes or supplies; it is opened only on
+  an active relationship. Who answers for a relationship is a row of `org.responsibility`.
+
+naming:
+  wire: relationship
+  display: Relationship
+
+types:
+  - name: org.relationship.Tie
+    kind: enum
+    variants: [Customer, Supplier, Partner, Regulator, Funder, Beneficiary]
+    naming:
+      summary: >-
+        What the party is to the organization. A customer or a beneficiary takes an offering, a
+        supplier supplies one; the block stores the tie and does not derive a direction from it.
+
+entities:
+  - name: org.relationship.Relationship
+    naming:
+      summary: >-
+        The tie between one organization and one party outside it. The same party may have
+        several relationships with one organization, one per tie. An ended relationship stays on
+        record, because requests, agreements and obligations name it.
+    identity:
+      name: relationship_id
+      type: org.shared.RelationshipId
+    fields:
+      # UNMAPPED: OpenRelationship refuses an organization that is not on record and a
+      # counterparty that is not registered, and reads the state of neither. Open question for
+      # the owner: whether a Dissolved organization or a Retired party takes a new relationship.
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: counterparty
+        type: org.shared.PartyId
+      - name: tie
+        type: org.relationship.Tie
+      - name: opened_at
+        type: Timestamp
+      - name: ended_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+      - name: counterparty_party
+        kind: references
+        target: org.party.Party
+        cardinality: one
+        via: counterparty
+    lifecycle:
+      initial: Prospect
+      states: [Prospect, Active, Suspended, Ended]
+      terminal: [Ended]
+      transitions:
+        - name: activate
+          from: [Prospect]
+          to: Active
+        - name: suspend
+          from: [Active]
+          to: Suspended
+        - name: resume
+          from: [Suspended]
+          to: Active
+        # UNMAPPED: the lifecycle is Prospect → Active → Suspended → Ended with no other exit
+        # from Prospect, so a prospect that never becomes active stays Prospect. Open question
+        # for the owner: add Prospect to `from` here.
+        - name: end
+          from: [Active, Suspended]
+          to: Ended
+
+  - name: org.relationship.Engagement
+    naming:
+      summary: >-
+        One relationship takes or supplies one offering, from the time it is opened until it is
+        closed.
+    identity:
+      name: engagement_id
+      type: org.shared.EngagementId
+    fields:
+      - name: relationship_id
+        type: org.shared.RelationshipId
+      - name: offering_id
+        type: org.shared.OfferingId
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+    relations:
+      - name: relationship
+        kind: references
+        target: org.relationship.Relationship
+        cardinality: one
+        via: relationship_id
+      - name: offering
+        kind: references
+        target: org.offering.Offering
+        cardinality: one
+        via: offering_id
+    lifecycle:
+      initial: Open
+      states: [Open, Closed]
+      terminal: [Closed]
+      transitions:
+        - name: close
+          from: [Open]
+          to: Closed
+
+errors:
+  - name: org.relationship.RelationshipExists
+    summary: A relationship of this identifier exists, and nothing was opened.
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+
+  - name: org.relationship.NoSuchRelationship
+    summary: No relationship of this identifier was opened.
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+
+  - name: org.relationship.UnknownOrganization
+    summary: >-
+      The relationship names an organization that is not on record, and nothing was opened.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.relationship.UnknownCounterparty
+    summary: The relationship names a party that is not registered, and nothing was opened.
+    fields:
+      - {name: counterparty, type: org.shared.PartyId}
+
+  - name: org.relationship.RelationshipStateConflict
+    summary: The relationship is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.relationship.Relationship.State}
+
+  - name: org.relationship.RelationshipNotActive
+    summary: >-
+      An engagement is opened only on an Active relationship; this one is a prospect, suspended
+      or ended, and nothing was opened.
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+
+  - name: org.relationship.UnknownOffering
+    summary: The engagement names an offering nobody proposed, and nothing was opened.
+    fields:
+      - {name: offering_id, type: org.shared.OfferingId}
+
+  - name: org.relationship.EngagementExists
+    summary: An engagement of this identifier exists, and nothing was opened.
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+
+  - name: org.relationship.NoSuchEngagement
+    summary: No engagement of this identifier was opened.
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+
+  - name: org.relationship.EngagementStateConflict
+    summary: The engagement is already closed, and nothing changed.
+    fields:
+      - {name: state, type: org.relationship.Engagement.State}
+
+events:
+  - name: org.relationship.RelationshipOpened
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: counterparty, type: org.shared.PartyId}
+      - {name: tie, type: org.relationship.Tie}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.RelationshipActivated
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.RelationshipSuspended
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.RelationshipResumed
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.RelationshipEnded
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.EngagementOpened
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+
+  - name: org.relationship.EngagementClosed
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.relationship.OpenRelationship
+    naming:
+      wire: open-relationship
+      display: Open a relationship with a party
+    input:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: counterparty, type: org.shared.PartyId}
+      - {name: tie, type: org.relationship.Tie}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-opened
+        existing_instance: true
+        error: org.relationship.RelationshipExists
+        payload:
+          org.relationship.RelationshipExists: {relationship_id: input.relationship_id}
+      - name: unknown-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.relationship.UnknownOrganization
+        payload:
+          org.relationship.UnknownOrganization: {organization_id: input.organization_id}
+      - name: unknown-counterparty
+        when_related: {via: input.counterparty, exists: false}
+        error: org.relationship.UnknownCounterparty
+        payload:
+          org.relationship.UnknownCounterparty: {counterparty: input.counterparty}
+      - name: opened
+        creates: org.relationship.Relationship
+        instance: relationship_id
+        sets:
+          organization_id: input.organization_id
+          counterparty: input.counterparty
+          tie: input.tie
+          opened_at: input.at
+        emits: [org.relationship.RelationshipOpened]
+        payload:
+          org.relationship.RelationshipOpened:
+            relationship_id: input.relationship_id
+            organization_id: input.organization_id
+            counterparty: input.counterparty
+            tie: input.tie
+            at: input.at
+        summary: The relationship is a Prospect; it takes no engagement yet.
+
+  - name: org.relationship.ActivateRelationship
+    naming:
+      wire: activate-relationship
+      display: Activate a relationship
+    input:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-relationship
+        unknown_instance: true
+        error: org.relationship.NoSuchRelationship
+        payload:
+          org.relationship.NoSuchRelationship: {relationship_id: input.relationship_id}
+      - name: activated
+        moves: org.relationship.Relationship.activate
+        instance: relationship_id
+        emits: [org.relationship.RelationshipActivated]
+        payload:
+          org.relationship.RelationshipActivated:
+            relationship_id: input.relationship_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.relationship.RelationshipStateConflict
+        payload:
+          org.relationship.RelationshipStateConflict: {state: {subject: state}}
+
+  - name: org.relationship.SuspendRelationship
+    naming:
+      wire: suspend-relationship
+      display: Suspend a relationship
+    input:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-relationship
+        unknown_instance: true
+        error: org.relationship.NoSuchRelationship
+        payload:
+          org.relationship.NoSuchRelationship: {relationship_id: input.relationship_id}
+      - name: suspended
+        moves: org.relationship.Relationship.suspend
+        instance: relationship_id
+        emits: [org.relationship.RelationshipSuspended]
+        payload:
+          org.relationship.RelationshipSuspended:
+            relationship_id: input.relationship_id
+            at: input.at
+        summary: >-
+          The relationship takes no new engagement until it is resumed; its open engagements
+          stay open.
+      - name: wrong-state
+        wrong_state: true
+        error: org.relationship.RelationshipStateConflict
+        payload:
+          org.relationship.RelationshipStateConflict: {state: {subject: state}}
+
+  - name: org.relationship.ResumeRelationship
+    naming:
+      wire: resume-relationship
+      display: Resume a suspended relationship
+    input:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-relationship
+        unknown_instance: true
+        error: org.relationship.NoSuchRelationship
+        payload:
+          org.relationship.NoSuchRelationship: {relationship_id: input.relationship_id}
+      - name: resumed
+        moves: org.relationship.Relationship.resume
+        instance: relationship_id
+        emits: [org.relationship.RelationshipResumed]
+        payload:
+          org.relationship.RelationshipResumed:
+            relationship_id: input.relationship_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.relationship.RelationshipStateConflict
+        payload:
+          org.relationship.RelationshipStateConflict: {state: {subject: state}}
+
+  - name: org.relationship.EndRelationship
+    naming:
+      wire: end-relationship
+      display: End a relationship
+    input:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-relationship
+        unknown_instance: true
+        error: org.relationship.NoSuchRelationship
+        payload:
+          org.relationship.NoSuchRelationship: {relationship_id: input.relationship_id}
+      # UNMAPPED: nothing in the design says what ending a relationship does to its open
+      # engagements: close them (an `affects:` entry here), refuse the end while one is open, or
+      # leave them. They are left open. Open question for the owner.
+      - name: ended
+        moves: org.relationship.Relationship.end
+        instance: relationship_id
+        sets:
+          ended_at: input.at
+        emits: [org.relationship.RelationshipEnded]
+        payload:
+          org.relationship.RelationshipEnded:
+            relationship_id: input.relationship_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.relationship.RelationshipStateConflict
+        payload:
+          org.relationship.RelationshipStateConflict: {state: {subject: state}}
+
+  - name: org.relationship.OpenEngagement
+    naming:
+      wire: open-engagement
+      display: Open an engagement of a relationship with an offering
+    input:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-opened
+        existing_instance: true
+        error: org.relationship.EngagementExists
+        payload:
+          org.relationship.EngagementExists: {engagement_id: input.engagement_id}
+      - name: no-such-relationship
+        when_related: {via: input.relationship_id, exists: false}
+        error: org.relationship.NoSuchRelationship
+        payload:
+          org.relationship.NoSuchRelationship: {relationship_id: input.relationship_id}
+      - name: unknown-offering
+        when_related: {via: input.offering_id, exists: false}
+        error: org.relationship.UnknownOffering
+        payload:
+          org.relationship.UnknownOffering: {offering_id: input.offering_id}
+      - name: relationship-not-active
+        when_related: {via: input.relationship_id, predicate: state != Active}
+        error: org.relationship.RelationshipNotActive
+        payload:
+          org.relationship.RelationshipNotActive: {relationship_id: input.relationship_id}
+        summary: A prospect, a suspended or an ended relationship takes no engagement.
+      - name: opened
+        creates: org.relationship.Engagement
+        instance: engagement_id
+        sets:
+          relationship_id: input.relationship_id
+          offering_id: input.offering_id
+          opened_at: input.at
+        emits: [org.relationship.EngagementOpened]
+        payload:
+          org.relationship.EngagementOpened:
+            engagement_id: input.engagement_id
+            relationship_id: input.relationship_id
+            offering_id: input.offering_id
+            at: input.at
+
+  - name: org.relationship.CloseEngagement
+    naming:
+      wire: close-engagement
+      display: Close an engagement
+    input:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-engagement
+        unknown_instance: true
+        error: org.relationship.NoSuchEngagement
+        payload:
+          org.relationship.NoSuchEngagement: {engagement_id: input.engagement_id}
+      - name: closed
+        moves: org.relationship.Engagement.close
+        instance: engagement_id
+        sets:
+          closed_at: input.at
+        emits: [org.relationship.EngagementClosed]
+        payload:
+          org.relationship.EngagementClosed:
+            engagement_id: input.engagement_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.relationship.EngagementStateConflict
+        payload:
+          org.relationship.EngagementStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.relationship.Relationships
+    source: org.relationship.Relationship
+    consistency: read_your_writes
+    fields:
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: counterparty, type: org.shared.PartyId}
+      - {name: tie, type: org.relationship.Tie}
+      - {name: opened_at, type: Timestamp}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.relationship.Relationship.State}
+    naming:
+      wire: relationships
+      display: Relationships
+
+  - name: org.relationship.Engagements
+    source: org.relationship.Engagement
+    consistency: read_your_writes
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: offering_id, type: org.shared.OfferingId}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.relationship.Engagement.State}
+    naming:
+      wire: engagements
+      display: Engagements
+
+  - name: org.relationship.EngagementsOfOffering
+    source: org.relationship.Engagement
+    consistency: read_your_writes
+    params:
+      - {name: offering_id, type: org.shared.OfferingId}
+    filter: {all: [offering_id == param.offering_id, state == Open]}
+    fields:
+      - {name: engagement_id, type: org.shared.EngagementId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: opened_at, type: Timestamp}
+    naming:
+      wire: engagements-of-offering
+      display: Open engagements of an offering

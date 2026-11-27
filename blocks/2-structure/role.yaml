@@ -1,0 +1,376 @@
+domain: org.role
+
+summary: >-
+  A named bundle of expectations: a purpose and what its holder is expected to do. A role belongs
+  to the organization, not to a unit, so two units can use it. A role names no position and no
+  holder; a position names the role it plays. A change of an active role's purpose or
+  expectations is a new revision of the role.
+
+naming:
+  wire: role
+  display: Role
+
+entities:
+  - name: org.role.Role
+    naming:
+      summary: >-
+        One role of one organization. Draft while it is written, Active while positions may play
+        it, Retired for good. A retired role stays on record, because positions that played it
+        name it.
+    identity:
+      name: role_id
+      type: org.shared.RoleId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: purpose
+        type: String
+      # What the holder is expected to do, one statement per entry.
+      - name: expectations
+        type: List<String>
+      # The name an organization type gives this kind of role. Stored, never branched on.
+      - name: kind
+        type: Optional<org.shared.KindName>
+      # 1 for the role as drafted. An edit of a draft keeps it; each change of an active role's
+      # purpose or expectations adds one.
+      - name: revision
+        type: Integer
+      - name: drafted_at
+        type: Timestamp
+      - name: retired_at
+        type: Optional<Timestamp>
+    invariants:
+      - revision >= 1
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+    lifecycle:
+      initial: Draft
+      states:
+        - {name: Draft, summary: "Being written; no position plays it yet."}
+        - {name: Active, summary: "Positions may play it; a change is a new revision."}
+        - {name: Retired, summary: "Takes no new position and no change; stays on record."}
+      terminal: [Retired]
+      transitions:
+        - {name: activate, from: [Draft], to: Active}
+        # UNMAPPED: the lifecycle is given as the chain Draft -> Active -> Retired, and nothing says
+        # whether a draft that is never activated can be retired. Taken: yes, from Draft and from
+        # Active. Open question for the owner.
+        - {name: retire, from: [Draft, Active], to: Retired}
+
+errors:
+  - name: org.role.RoleNotFound
+    summary: No role of this identity exists, and nothing changed.
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+
+  - name: org.role.RoleStateConflict
+    summary: The role is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: state, type: org.role.Role.State}
+
+  - name: org.role.OrganizationNotFound
+    summary: The organization named does not exist, and no role was drafted.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.role.OrganizationDissolved
+    summary: The organization named is dissolved, and no role was drafted.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+events:
+  - name: org.role.RoleDrafted
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  # A draft was rewritten. The revision number stays the same.
+  - name: org.role.RoleDraftEdited
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  - name: org.role.RoleActivated
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: revision, type: Integer}
+      - {name: at, type: Timestamp}
+
+  # An active role's purpose or expectations changed. `revision` is the new revision number.
+  - name: org.role.RoleRevised
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: previous_revision, type: Integer}
+      - {name: revision, type: Integer}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: at, type: Timestamp}
+
+  - name: org.role.RoleRenamed
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: previous_name, type: org.shared.Name}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+
+  - name: org.role.RoleRetired
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.role.DraftRole
+    naming:
+      wire: draft-role
+      display: Draft a role
+    input:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.role.OrganizationNotFound
+        payload:
+          org.role.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: organization-dissolved
+        when_related: {via: input.organization_id, predicate: state == Dissolved}
+        error: org.role.OrganizationDissolved
+        payload:
+          org.role.OrganizationDissolved: {organization_id: input.organization_id}
+      - name: drafted
+        creates: org.role.Role
+        instance: role_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          purpose: input.purpose
+          expectations: input.expectations
+          kind: input.kind
+          revision: 1
+          drafted_at: input.at
+        emits: [org.role.RoleDrafted]
+        payload:
+          org.role.RoleDrafted:
+            role_id: input.role_id
+            organization_id: input.organization_id
+            name: input.name
+            purpose: input.purpose
+            expectations: input.expectations
+            kind: input.kind
+            revision: 1
+            at: input.at
+        summary: The role exists as a Draft at revision 1.
+
+  - name: org.role.ActivateRole
+    naming:
+      wire: activate-role
+      display: Activate a role
+    input:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-role
+        unknown_instance: true
+        error: org.role.RoleNotFound
+        payload:
+          org.role.RoleNotFound: {role_id: input.role_id}
+      - name: activated
+        moves: org.role.Role.activate
+        instance: role_id
+        emits: [org.role.RoleActivated]
+        payload:
+          org.role.RoleActivated:
+            role_id: input.role_id
+            revision: {subject: revision}
+            at: input.at
+        summary: Positions may play the role.
+      - name: wrong-state
+        wrong_state: true
+        error: org.role.RoleStateConflict
+        payload:
+          org.role.RoleStateConflict: {state: {subject: state}}
+
+  # State the purpose and the expectations of a role anew. On a draft this rewrites the draft and
+  # keeps its revision. On an active role it is a new revision, and the event carries its number.
+  - name: org.role.ReviseRole
+    naming:
+      wire: revise-role
+      display: Revise a role
+    input:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-role
+        unknown_instance: true
+        error: org.role.RoleNotFound
+        payload:
+          org.role.RoleNotFound: {role_id: input.role_id}
+      - name: draft-edited
+        when_subject_state: Draft
+        updates: org.role.Role
+        instance: role_id
+        sets:
+          purpose: input.purpose
+          expectations: input.expectations
+        emits: [org.role.RoleDraftEdited]
+        payload:
+          org.role.RoleDraftEdited:
+            role_id: input.role_id
+            purpose: input.purpose
+            expectations: input.expectations
+            revision: {subject: revision}
+            at: input.at
+        summary: The draft holds the new purpose and expectations at the same revision.
+      - name: revised
+        when_subject_state: Active
+        updates: org.role.Role
+        instance: role_id
+        sets:
+          purpose: input.purpose
+          expectations: input.expectations
+          revision: {increment: 1}
+        emits: [org.role.RoleRevised]
+        payload:
+          org.role.RoleRevised:
+            role_id: input.role_id
+            previous_revision: {subject: revision}
+            revision: {expr: "subject.revision + 1"}
+            purpose: input.purpose
+            expectations: input.expectations
+            at: input.at
+        summary: The active role holds the new purpose and expectations at the next revision.
+      - name: retired
+        error: org.role.RoleStateConflict
+        payload:
+          org.role.RoleStateConflict: {state: Retired}
+        summary: A retired role keeps the purpose and expectations it had.
+
+  # A new name is not a new revision: what the holder is expected to do did not change.
+  - name: org.role.RenameRole
+    naming:
+      wire: rename-role
+      display: Rename a role
+    input:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-role
+        unknown_instance: true
+        error: org.role.RoleNotFound
+        payload:
+          org.role.RoleNotFound: {role_id: input.role_id}
+      - name: renamed
+        when_subject_state: [Draft, Active]
+        updates: org.role.Role
+        instance: role_id
+        sets:
+          name: input.name
+        emits: [org.role.RoleRenamed]
+        payload:
+          org.role.RoleRenamed:
+            role_id: input.role_id
+            previous_name: {subject: name}
+            name: input.name
+            at: input.at
+        summary: The role carries the new name at the same revision.
+      - name: retired
+        error: org.role.RoleStateConflict
+        payload:
+          org.role.RoleStateConflict: {state: Retired}
+        summary: A retired role keeps the name it had.
+
+  # UNMAPPED: the design does not say what retiring a role does to the positions that play it. A
+  # role does not name its positions (the edge points from position to role), so this block
+  # cannot refuse it. Taken: accepted here; established positions keep the reference, and no new
+  # position is established on a retired role. Open question for the owner.
+  - name: org.role.RetireRole
+    naming:
+      wire: retire-role
+      display: Retire a role
+    input:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-role
+        unknown_instance: true
+        error: org.role.RoleNotFound
+        payload:
+          org.role.RoleNotFound: {role_id: input.role_id}
+      - name: retired
+        moves: org.role.Role.retire
+        instance: role_id
+        sets:
+          retired_at: input.at
+        emits: [org.role.RoleRetired]
+        payload:
+          org.role.RoleRetired:
+            role_id: input.role_id
+            at: input.at
+        summary: The role takes no new position and no change.
+      - name: wrong-state
+        wrong_state: true
+        error: org.role.RoleStateConflict
+        payload:
+          org.role.RoleStateConflict: {state: {subject: state}}
+        summary: The role had already retired.
+
+views:
+  - name: org.role.Roles
+    source: org.role.Role
+    consistency: read_your_writes
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: revision, type: Integer}
+      - {name: drafted_at, type: Timestamp}
+      - {name: retired_at, type: Optional<Timestamp>}
+      - {name: state, type: org.role.Role.State}
+    naming:
+      wire: roles
+      display: Roles
+
+  # The roles of one organization that a position may play.
+  - name: org.role.ActiveRolesOfOrganization
+    source: org.role.Role
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter:
+      all:
+        - organization_id == param.organization_id
+        - state == Active
+    fields:
+      - {name: role_id, type: org.shared.RoleId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: purpose, type: String}
+      - {name: expectations, type: List<String>}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: revision, type: Integer}
+      - {name: state, type: org.role.Role.State}
+    naming:
+      wire: active-roles-of-organization
+      display: Active roles of an organization

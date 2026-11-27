@@ -1,0 +1,7 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A kind of unit refines a kind of role.
+kinds:
+  gallery: { block: unit, is: guide }
+  guide: { block: role }

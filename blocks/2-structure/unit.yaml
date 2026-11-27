@@ -1,0 +1,417 @@
+domain: org.unit
+
+summary: >-
+  A grouping inside an organization. A unit has a nature (line, governing, community, temporary)
+  and a basis of grouping (function, offering, market, region, process, project, mixed). A board
+  is a governing unit. Units form a tree: a unit names its parent, and no unit lists its children
+  or its positions.
+
+naming:
+  wire: unit
+  display: Unit
+
+types:
+  - name: org.unit.Nature
+    kind: enum
+    variants: [Line, Governing, Community, Temporary]
+    naming:
+      summary: >-
+        What the unit is for. Line does the organization's work, Governing directs or oversees
+        it (a board, a committee), Community shares a practice across lines, Temporary exists
+        for a bounded effort.
+
+  - name: org.unit.Basis
+    kind: enum
+    variants: [Function, Offering, Market, Region, Process, Project, Mixed]
+    naming:
+      summary: What the members of the unit have in common, the cut the grouping was made along.
+
+entities:
+  - name: org.unit.Unit
+    naming:
+      summary: >-
+        One grouping inside one organization, under a parent unit or at the top. Formed until
+        disbanded; a disbanded unit stays on record, because past decisions and budgets name it.
+    identity:
+      name: unit_id
+      type: org.shared.UnitId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: parent
+        type: Optional<org.shared.UnitId>
+      - name: name
+        type: org.shared.Name
+      - name: nature
+        type: org.unit.Nature
+      - name: basis
+        type: org.unit.Basis
+      # The name an organization type gives this kind of unit. Stored, never branched on.
+      - name: kind
+        type: Optional<org.shared.KindName>
+      - name: formed_at
+        type: Timestamp
+      - name: disbanded_at
+        type: Optional<Timestamp>
+    relations:
+      - {name: organization, kind: references, target: org.organization.Organization, cardinality: one, via: organization_id}
+      - {name: parent_unit, kind: references, target: org.unit.Unit, cardinality: one, via: parent}
+    lifecycle:
+      initial: Formed
+      states:
+        - {name: Formed, summary: "Exists; takes child units and positions."}
+        - {name: Disbanded, summary: "Ended; stays on record and takes nothing new."}
+      terminal: [Disbanded]
+      transitions:
+        - {name: disband, from: [Formed], to: Disbanded}
+
+errors:
+  - name: org.unit.UnitNotFound
+    summary: No unit of this identity exists, and nothing changed.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+  - name: org.unit.UnitNotFormed
+    summary: The unit is disbanded, so it takes no change, and nothing changed.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+  - name: org.unit.OrganizationNotFound
+    summary: The organization named does not exist, and no unit was formed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.unit.OrganizationDissolved
+    summary: The organization named is dissolved, and no unit was formed.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.unit.OwnParent
+    summary: A unit cannot be its own parent, and nothing changed.
+
+  - name: org.unit.ParentNotFound
+    summary: The parent unit named does not exist, and nothing changed.
+
+  - name: org.unit.ParentDisbanded
+    summary: The parent unit named is disbanded, and nothing changed.
+
+  - name: org.unit.UnitHasChildren
+    summary: Formed units still name this unit as their parent, and it was not disbanded.
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+
+events:
+  - name: org.unit.UnitFormed
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.UnitId>}
+      - {name: name, type: org.shared.Name}
+      - {name: nature, type: org.unit.Nature}
+      - {name: basis, type: org.unit.Basis}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+
+  - name: org.unit.UnitMoved
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: previous_parent, type: Optional<org.shared.UnitId>}
+      - {name: parent, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+
+  - name: org.unit.UnitMovedToTop
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: previous_parent, type: Optional<org.shared.UnitId>}
+      - {name: at, type: Timestamp}
+
+  - name: org.unit.UnitRenamed
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: previous_name, type: org.shared.Name}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+
+  - name: org.unit.UnitDisbanded
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+
+commands:
+  # Form a unit in an organization, under a parent unit or at the top.
+  # UNMAPPED: a parent unit of another organization is not refused, here or in MoveUnit. A guard
+  # cannot compare the unit's organization with its parent's: `when_related` reads the related
+  # row and the input, not the subject (ESS-COMMAND-003, `unobservable_fact`, for
+  # `organization_id != subject.organization_id`). Comparing the parent's organization with
+  # `input.organization_id` validates, and synthesis then arranges no unit at all (ESS-SYNTH-003
+  # on `formed` and on every MoveUnit outcome). Taken: not refused here, and no rule of
+  # `orgspec check` in the design covers it. Open question for the owner.
+  - name: org.unit.FormUnit
+    naming:
+      wire: form-unit
+      display: Form a unit
+    input:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.UnitId>}
+      - {name: name, type: org.shared.Name}
+      - {name: nature, type: org.unit.Nature}
+      - {name: basis, type: org.unit.Basis}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.unit.OrganizationNotFound
+        payload:
+          org.unit.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: no-such-parent
+        when_related: {via: input.parent, exists: false}
+        error: org.unit.ParentNotFound
+      - name: organization-dissolved
+        when_related: {via: input.organization_id, predicate: state == Dissolved}
+        error: org.unit.OrganizationDissolved
+        payload:
+          org.unit.OrganizationDissolved: {organization_id: input.organization_id}
+      - name: parent-disbanded
+        when_related: {via: input.parent, predicate: state == Disbanded}
+        error: org.unit.ParentDisbanded
+      - name: formed
+        creates: org.unit.Unit
+        instance: unit_id
+        sets:
+          organization_id: input.organization_id
+          parent: input.parent
+          name: input.name
+          nature: input.nature
+          basis: input.basis
+          kind: input.kind
+          formed_at: input.at
+        emits: [org.unit.UnitFormed]
+        payload:
+          org.unit.UnitFormed:
+            unit_id: input.unit_id
+            organization_id: input.organization_id
+            parent: input.parent
+            name: input.name
+            nature: input.nature
+            basis: input.basis
+            kind: input.kind
+            at: input.at
+        summary: The unit exists and is Formed.
+
+  # Move a unit under another parent unit. Its child units and its positions move with it,
+  # because they name the unit and not its place in the tree.
+  # UNMAPPED: a move that closes a cycle (a unit moved under its own descendant) is not refused
+  # here. ESS has no guard over a chain of rows (design, "What ESS lacks here"); only the unit
+  # that names itself is refused. The design gives `orgspec check` a cycle rule for reporting
+  # lines only (`reporting_cycle`); a cycle of parent units needs a rule of its own.
+  - name: org.unit.MoveUnit
+    naming:
+      wire: move-unit
+      display: Move a unit under another parent
+    input:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: parent, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # ESS limit: three refusals of this command validate and get no synthesized scenario.
+      # `own-parent`: ESS-SYNTH-003 ("reads a related row of Unit itself, which is arranged one
+      # level deep and only where its lifecycle starts"). `disbanded` and `parent-disbanded`:
+      # ESS-SYNTH-001, because the way to a disbanded unit runs through DisbandUnit, whose row-set
+      # guard synthesis does not decide beside a second unit. Hand-written scenarios cover them.
+      - name: own-parent
+        when: input.unit_id == input.parent
+        error: org.unit.OwnParent
+      - name: no-such-unit
+        unknown_instance: true
+        error: org.unit.UnitNotFound
+        payload:
+          org.unit.UnitNotFound: {unit_id: input.unit_id}
+      - name: disbanded
+        when_subject: {predicate: state == Disbanded}
+        error: org.unit.UnitNotFormed
+        payload:
+          org.unit.UnitNotFormed: {unit_id: input.unit_id}
+      - name: no-such-parent
+        when_related: {via: input.parent, exists: false}
+        error: org.unit.ParentNotFound
+      - name: parent-disbanded
+        when_related: {via: input.parent, predicate: state == Disbanded}
+        error: org.unit.ParentDisbanded
+      - name: moved
+        updates: org.unit.Unit
+        instance: unit_id
+        sets:
+          parent: input.parent
+        emits: [org.unit.UnitMoved]
+        payload:
+          org.unit.UnitMoved:
+            unit_id: input.unit_id
+            previous_parent: {subject: parent}
+            parent: input.parent
+            at: input.at
+        summary: The unit sits under the parent named.
+
+  - name: org.unit.MoveUnitToTop
+    naming:
+      wire: move-unit-to-top
+      display: Move a unit to the top
+    input:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-unit
+        unknown_instance: true
+        error: org.unit.UnitNotFound
+        payload:
+          org.unit.UnitNotFound: {unit_id: input.unit_id}
+      - name: moved
+        when_subject_state: Formed
+        updates: org.unit.Unit
+        instance: unit_id
+        sets:
+          parent: {cleared: true}
+        emits: [org.unit.UnitMovedToTop]
+        payload:
+          org.unit.UnitMovedToTop:
+            unit_id: input.unit_id
+            previous_parent: {subject: parent}
+            at: input.at
+        summary: The unit has no parent and sits directly in its organization.
+      - name: disbanded
+        error: org.unit.UnitNotFormed
+        payload:
+          org.unit.UnitNotFormed: {unit_id: input.unit_id}
+        summary: A disbanded unit keeps the place it had.
+
+  - name: org.unit.RenameUnit
+    naming:
+      wire: rename-unit
+      display: Rename a unit
+    input:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: name, type: org.shared.Name}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-unit
+        unknown_instance: true
+        error: org.unit.UnitNotFound
+        payload:
+          org.unit.UnitNotFound: {unit_id: input.unit_id}
+      - name: renamed
+        when_subject_state: Formed
+        updates: org.unit.Unit
+        instance: unit_id
+        sets:
+          name: input.name
+        emits: [org.unit.UnitRenamed]
+        payload:
+          org.unit.UnitRenamed:
+            unit_id: input.unit_id
+            previous_name: {subject: name}
+            name: input.name
+            at: input.at
+        summary: The unit carries the new name; the event carries the old one too.
+      - name: disbanded
+        error: org.unit.UnitNotFormed
+        payload:
+          org.unit.UnitNotFormed: {unit_id: input.unit_id}
+        summary: A disbanded unit keeps the name it had.
+
+  # A unit with formed child units is not disbanded: the children are moved or disbanded first.
+  # UNMAPPED: the design does not say whether a unit that still has established positions may be
+  # disbanded. A unit does not name its positions (the edge points from position to unit), so
+  # this block cannot refuse it. Taken: accepted here; the positions keep the reference, and
+  # `org.position` refuses a new position in a disbanded unit. Open question for the owner.
+  - name: org.unit.DisbandUnit
+    naming:
+      wire: disband-unit
+      display: Disband a unit
+    input:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-unit
+        unknown_instance: true
+        error: org.unit.UnitNotFound
+        payload:
+          org.unit.UnitNotFound: {unit_id: input.unit_id}
+      # `defined(parent)` makes the selection decided for a unit at the top, whose `parent` is
+      # absent.
+      # ESS limit: this refusal validates and gets no synthesized scenario (ESS-SYNTH-001, "the
+      # command creating them refuses a missing related row through the input the selector
+      # compares"): a child is created only beside its parent, a row of the same entity. A
+      # hand-written scenario covers it.
+      - name: has-children
+        when_related:
+          entity: org.unit.Unit
+          where:
+            all:
+              - defined(parent)
+              - parent == input.unit_id
+              - state == Formed
+          exists: true
+        error: org.unit.UnitHasChildren
+        payload:
+          org.unit.UnitHasChildren: {unit_id: input.unit_id}
+      - name: disbanded
+        moves: org.unit.Unit.disband
+        instance: unit_id
+        sets:
+          disbanded_at: input.at
+        emits: [org.unit.UnitDisbanded]
+        payload:
+          org.unit.UnitDisbanded:
+            unit_id: input.unit_id
+            at: input.at
+        summary: The unit is ended and stays on record.
+      - name: already-disbanded
+        wrong_state: true
+        error: org.unit.UnitNotFormed
+        payload:
+          org.unit.UnitNotFormed: {unit_id: input.unit_id}
+        summary: The unit had already been disbanded.
+
+views:
+  - name: org.unit.Units
+    source: org.unit.Unit
+    consistency: read_your_writes
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.UnitId>}
+      - {name: name, type: org.shared.Name}
+      - {name: nature, type: org.unit.Nature}
+      - {name: basis, type: org.unit.Basis}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: formed_at, type: Timestamp}
+      - {name: disbanded_at, type: Optional<Timestamp>}
+      - {name: state, type: org.unit.Unit.State}
+    naming:
+      wire: units
+      display: Units
+
+  # The formed units of one organization: its structure as it stands. The tree is read from
+  # `parent`.
+  - name: org.unit.UnitsOfOrganization
+    source: org.unit.Unit
+    consistency: read_your_writes
+    params:
+      - {name: organization_id, type: org.shared.OrganizationId}
+    filter:
+      all:
+        - organization_id == param.organization_id
+        - state == Formed
+    fields:
+      - {name: unit_id, type: org.shared.UnitId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: parent, type: Optional<org.shared.UnitId>}
+      - {name: name, type: org.shared.Name}
+      - {name: nature, type: org.unit.Nature}
+      - {name: basis, type: org.unit.Basis}
+      - {name: kind, type: Optional<org.shared.KindName>}
+      - {name: state, type: org.unit.Unit.State}
+    naming:
+      wire: units-of-organization
+      display: Units of an organization

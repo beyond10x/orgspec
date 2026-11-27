@@ -1,0 +1,16 @@
+format: orgspec-organization/1
+organization: bakery
+origin: invented
+parts:
+  bakery:  { block: organization }
+  board:   { block: unit, nature: governing, in: bakery }
+  kitchen: { block: unit, nature: line, in: bakery }
+  baker:   { block: role }
+  head:    { block: position, in: kitchen, role: baker }
+  second:  { block: position, in: kitchen, role: baker }
+  third:   { block: position, in: kitchen, role: baker }
+links:
+  - { from: head, to: board, carries: reports_to }
+  - { from: second, to: head, carries: escalates, after: 1d }
+  - { from: third, to: board, carries: escalates }
+  - { from: board, to: third, carries: escalates }

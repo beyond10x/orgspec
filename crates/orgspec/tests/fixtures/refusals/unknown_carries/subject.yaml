@@ -1,0 +1,18 @@
+format: orgspec-type/1
+type: museum
+origin: invented
+summary: A rule and a default that name a link nobody declares.
+rules:
+  - id: asset_has_curator
+    summary: Every asset has a curator.
+    rule: links
+    each: { block: asset }
+    carries: curates
+    direction: in
+    min: 1
+defaults:
+  - id: guide_assists
+    summary: A guide assists the head of the unit.
+    each: { block: position }
+    carries: assists
+    to: { block: position, same: unit }

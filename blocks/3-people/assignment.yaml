@@ -1,0 +1,464 @@
+domain: org.assignment
+
+summary: >-
+  A member holds a position, with a share of its time and for a time. The seat is the position's;
+  the assignment puts a member in it and ends without touching the seat. One member may hold
+  several positions. A holder that is an agent or a service names the position that answers for
+  it, so every chain of accountability ends at a human.
+
+naming:
+  wire: assignment
+  display: Assignment
+
+entities:
+  # UNMAPPED: ending a membership while one of its assignments is Active is not refused and does
+  # not end the assignment. The edge points down: an assignment names its membership, and
+  # org.membership must not know assignments, so EndMembership cannot read or change them. A
+  # consumer's process ends the assignments first. The half this block holds: ProposeAssignment
+  # refuses an ended membership and StartAssignment refuses one that is not Active.
+  # UNMAPPED: holder_kind is given by the command and is not compared with the kind of the
+  # member's party. The party is two references away (the membership, then its party in
+  # org.party); a guard reads one related row.
+  # UNMAPPED: the chain of answers_to is not followed to a position held by a human. ESS has no
+  # guard over a chain of rows; `orgspec check` holds it as `agent_without_accountable_human`.
+  # UNMAPPED: the seats of the position are not held against the number of active assignments.
+  # The seats are a field of org.position.Position, and nothing in the design says an assignment
+  # beyond the seats is refused. Open question for the owner.
+  - name: org.assignment.Assignment
+    naming:
+      summary: >-
+        One member in one position. Proposed until it starts, Active while the member holds the
+        seat, Ended afterwards. `acting` marks a holder who stands in for the seat's regular
+        holder. `answers_to` is the position that answers for this holder; an agent or a service
+        always has one.
+    identity:
+      name: assignment_id
+      type: org.shared.AssignmentId
+    fields:
+      - name: membership_id
+        type: org.shared.MembershipId
+      - name: position_id
+        type: org.shared.PositionId
+      - name: share
+        type: org.shared.Share
+        summary: The part of the member's time this position takes, in thousandths.
+      - name: acting
+        type: Boolean
+      - name: answers_to
+        type: Optional<org.shared.PositionId>
+      - name: holder_kind
+        type: org.shared.PartyKind
+        summary: The kind of the member's party, as the proposing command gave it.
+      - name: proposed_at
+        type: Timestamp
+      - name: started_at
+        type: Optional<Timestamp>
+      - name: ended_at
+        type: Optional<Timestamp>
+    invariants:
+      - any:
+          - holder_kind: [Human, Organization]
+          - defined(answers_to)
+    relations:
+      - name: membership
+        kind: references
+        target: org.membership.Membership
+        cardinality: one
+        via: membership_id
+      - name: position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: position_id
+      - name: answering_position
+        kind: references
+        target: org.position.Position
+        cardinality: one
+        via: answers_to
+    lifecycle:
+      initial: Proposed
+      states:
+        - {name: Proposed, summary: "Named and not yet in effect."}
+        - {name: Active, summary: "The member holds the position."}
+        - {name: Ended, summary: "The member no longer holds it. The row stays on record."}
+      terminal: [Ended]
+      transitions:
+        - {name: start, from: [Proposed], to: Active}
+        - name: end
+          from: [Proposed, Active]
+          to: Ended
+          summary: A proposal that is dropped ends the same way as an assignment that was active.
+
+errors:
+  - name: org.assignment.AgentWithoutAccountablePosition
+    summary: >-
+      The holder is an agent or a service and the command names no position that answers for it.
+      Nothing was recorded.
+    fields:
+      - {name: holder_kind, type: org.shared.PartyKind}
+      - {name: position_id, type: org.shared.PositionId}
+
+  - name: org.assignment.NoSuchMembership
+    summary: The command names a membership that is not on record. Nothing was recorded.
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+
+  - name: org.assignment.MembershipEnded
+    summary: The membership has ended, so it takes no position. Nothing was recorded.
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+
+  - name: org.assignment.MembershipNotActive
+    summary: >-
+      The membership is not Active, so its party is not a member who can hold a position now.
+      Nothing changed.
+    fields:
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: state, type: org.membership.Membership.State}
+
+  - name: org.assignment.AssignmentNotFound
+    summary: No assignment of this identity is on record, and nothing changed.
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+
+  - name: org.assignment.AssignmentStateConflict
+    summary: The assignment is not in a state this command acts from, and nothing changed.
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: state, type: org.assignment.Assignment.State}
+
+events:
+  - name: org.assignment.AssignmentProposed
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: share, type: org.shared.Share}
+      - {name: acting, type: Boolean}
+      - {name: answers_to, type: Optional<org.shared.PositionId>}
+      - {name: holder_kind, type: org.shared.PartyKind}
+      - {name: at, type: Timestamp}
+
+  - name: org.assignment.AssignmentStarted
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.assignment.ShareChanged
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: previous_share, type: org.shared.Share}
+      - {name: share, type: org.shared.Share}
+      - {name: at, type: Timestamp}
+
+  - name: org.assignment.AccountablePositionChanged
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: previous_answers_to, type: Optional<org.shared.PositionId>}
+      - {name: answers_to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+
+  - name: org.assignment.AssignmentEnded
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: ended_from, type: org.assignment.Assignment.State}
+      - {name: at, type: Timestamp}
+
+commands:
+  # UNMAPPED: that the position and the position named in `answers_to` exist is not checked. A
+  # refusal `when_related: {via: input.position_id, exists: false}` validates and keeps every
+  # scenario, and five of them then fail on the interpreter: the scenarios
+  # `org.assignment.Assignment/invariant/after/org.membership.<command>/<outcome>` arrange an
+  # assignment without its position (ESS-CF-OUTCOME: `proposed` expected, `no-such-position`
+  # observed). The same refusal over `input.answers_to` fails the same five and takes the
+  # scenario of `agent-without-accountable-position` (ESS-SYNTH-003). Taken: both identifiers
+  # are stored as given, and the relations `position` and `answering_position` declare what
+  # they name.
+  - name: org.assignment.ProposeAssignment
+    naming:
+      wire: propose-assignment
+      display: Propose an assignment
+      summary: >-
+        Names a member for a position. A holder of kind Agent or Service must name the position
+        that answers for it. The membership must be on record and not Ended; it must be Active
+        when the assignment starts.
+    input:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: share, type: org.shared.Share}
+      - {name: acting, type: Boolean}
+      - {name: answers_to, type: Optional<org.shared.PositionId>}
+      - {name: holder_kind, type: org.shared.PartyKind}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: agent-without-accountable-position
+        when:
+          all:
+            - holder_kind: [Agent, Service]
+            - not defined(answers_to)
+        error: org.assignment.AgentWithoutAccountablePosition
+        payload:
+          org.assignment.AgentWithoutAccountablePosition:
+            holder_kind: input.holder_kind
+            position_id: input.position_id
+        summary: An agent or a service holds a position only under a position that answers for it.
+      - name: no-such-membership
+        when_related: {via: input.membership_id, exists: false}
+        error: org.assignment.NoSuchMembership
+        payload:
+          org.assignment.NoSuchMembership: {membership_id: input.membership_id}
+        summary: Default deny, an assignment needs a membership under it.
+      - name: membership-ended
+        when_related: {via: input.membership_id, predicate: state == Ended}
+        error: org.assignment.MembershipEnded
+        payload:
+          org.assignment.MembershipEnded:
+            membership_id: input.membership_id
+        summary: >-
+          An ended membership takes no position. An invited or suspended one may be proposed for
+          a seat.
+      - name: proposed
+        creates: org.assignment.Assignment
+        instance: assignment_id
+        sets:
+          membership_id: input.membership_id
+          position_id: input.position_id
+          share: input.share
+          acting: input.acting
+          answers_to: input.answers_to
+          holder_kind: input.holder_kind
+          proposed_at: input.at
+        emits: [org.assignment.AssignmentProposed]
+        payload:
+          org.assignment.AssignmentProposed:
+            assignment_id: input.assignment_id
+            membership_id: input.membership_id
+            position_id: input.position_id
+            share: input.share
+            acting: input.acting
+            answers_to: input.answers_to
+            holder_kind: input.holder_kind
+            at: input.at
+        summary: The assignment exists and is Proposed.
+
+  - name: org.assignment.StartAssignment
+    naming:
+      wire: start-assignment
+      display: Start an assignment
+      summary: The member takes the seat. The membership must still be Active at this instant.
+    input:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      # ESS-SYNTH-008: synthesis writes no scenario for this branch (an unknown id beside a guard
+      # over the stored membership reference); an authored scenario covers it.
+      - name: no-such-assignment
+        unknown_instance: true
+        error: org.assignment.AssignmentNotFound
+        payload:
+          org.assignment.AssignmentNotFound: {assignment_id: input.assignment_id}
+      - name: membership-not-active
+        when_related: {via: membership_id, predicate: state != Active}
+        error: org.assignment.MembershipNotActive
+        payload:
+          org.assignment.MembershipNotActive:
+            membership_id: {subject: membership_id}
+            state: {related: {via: membership_id, field: state}}
+        summary: The membership is still invited, or was suspended or ended after the proposal.
+      - name: started
+        moves: org.assignment.Assignment.start
+        instance: assignment_id
+        sets:
+          started_at: input.at
+        emits: [org.assignment.AssignmentStarted]
+        payload:
+          org.assignment.AssignmentStarted:
+            assignment_id: input.assignment_id
+            membership_id: {subject: membership_id}
+            position_id: {subject: position_id}
+            at: input.at
+        summary: The member holds the position.
+      - name: wrong-state
+        wrong_state: true
+        error: org.assignment.AssignmentStateConflict
+        payload:
+          org.assignment.AssignmentStateConflict:
+            assignment_id: input.assignment_id
+            state: {subject: state}
+        summary: Only a proposed assignment starts.
+
+  - name: org.assignment.ChangeShare
+    naming:
+      wire: change-share
+      display: Change the share of an assignment
+    input:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: share, type: org.shared.Share}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-assignment
+        unknown_instance: true
+        error: org.assignment.AssignmentNotFound
+        payload:
+          org.assignment.AssignmentNotFound: {assignment_id: input.assignment_id}
+      - name: changed
+        when_subject_state: [Proposed, Active]
+        updates: org.assignment.Assignment
+        instance: assignment_id
+        sets:
+          share: input.share
+        emits: [org.assignment.ShareChanged]
+        payload:
+          org.assignment.ShareChanged:
+            assignment_id: input.assignment_id
+            previous_share: {subject: share}
+            share: input.share
+            at: input.at
+        summary: The assignment takes the new share; the event carries the old one too.
+      - name: ended
+        error: org.assignment.AssignmentStateConflict
+        payload:
+          org.assignment.AssignmentStateConflict:
+            assignment_id: input.assignment_id
+            state: Ended
+        summary: An ended assignment keeps the share it had.
+
+  # The answering position is required here, so no change can leave an agent or a service
+  # without one.
+  - name: org.assignment.ChangeAccountablePosition
+    naming:
+      wire: change-accountable-position
+      display: Change the position that answers for a holder
+      summary: >-
+        Names another position that answers for this holder, as when the former one is closed.
+        The command always names one: an answering position is replaced, never removed.
+    input:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: answers_to, type: org.shared.PositionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-assignment
+        unknown_instance: true
+        error: org.assignment.AssignmentNotFound
+        payload:
+          org.assignment.AssignmentNotFound: {assignment_id: input.assignment_id}
+      - name: changed
+        when_subject_state: [Proposed, Active]
+        updates: org.assignment.Assignment
+        instance: assignment_id
+        sets:
+          answers_to: input.answers_to
+        emits: [org.assignment.AccountablePositionChanged]
+        payload:
+          org.assignment.AccountablePositionChanged:
+            assignment_id: input.assignment_id
+            previous_answers_to: {subject: answers_to}
+            answers_to: input.answers_to
+            at: input.at
+        summary: The named position answers for the holder from now on.
+      - name: ended
+        error: org.assignment.AssignmentStateConflict
+        payload:
+          org.assignment.AssignmentStateConflict:
+            assignment_id: input.assignment_id
+            state: Ended
+        summary: An ended assignment keeps the answering position it had.
+
+  - name: org.assignment.EndAssignment
+    naming:
+      wire: end-assignment
+      display: End an assignment
+    input:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-assignment
+        unknown_instance: true
+        error: org.assignment.AssignmentNotFound
+        payload:
+          org.assignment.AssignmentNotFound: {assignment_id: input.assignment_id}
+      - name: ended
+        moves: org.assignment.Assignment.end
+        instance: assignment_id
+        sets:
+          ended_at: input.at
+        emits: [org.assignment.AssignmentEnded]
+        payload:
+          org.assignment.AssignmentEnded:
+            assignment_id: input.assignment_id
+            membership_id: {subject: membership_id}
+            position_id: {subject: position_id}
+            ended_from: {subject: state}
+            at: input.at
+        summary: The seat is free again. The position stays as it was.
+      - name: wrong-state
+        wrong_state: true
+        error: org.assignment.AssignmentStateConflict
+        payload:
+          org.assignment.AssignmentStateConflict:
+            assignment_id: input.assignment_id
+            state: {subject: state}
+        summary: The assignment had already ended.
+
+views:
+  - name: org.assignment.Assignments
+    source: org.assignment.Assignment
+    consistency: read_your_writes
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: share, type: org.shared.Share}
+      - {name: acting, type: Boolean}
+      - {name: answers_to, type: Optional<org.shared.PositionId>}
+      - {name: holder_kind, type: org.shared.PartyKind}
+      - {name: proposed_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: state, type: org.assignment.Assignment.State}
+    naming:
+      wire: assignments
+      display: Assignments
+
+  # Who holds one position now. No row means the position is vacant.
+  - name: org.assignment.HoldersOfPosition
+    source: org.assignment.Assignment
+    consistency: read_your_writes
+    params:
+      - {name: position_id, type: org.shared.PositionId}
+    filter:
+      all:
+        - position_id == param.position_id
+        - state == Active
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: membership_id, type: org.shared.MembershipId}
+      - {name: share, type: org.shared.Share}
+      - {name: acting, type: Boolean}
+      - {name: answers_to, type: Optional<org.shared.PositionId>}
+      - {name: holder_kind, type: org.shared.PartyKind}
+    naming:
+      wire: holders-of-position
+      display: Holders of a position
+
+  # Every position one member holds or is proposed for.
+  - name: org.assignment.AssignmentsOfMembership
+    source: org.assignment.Assignment
+    consistency: read_your_writes
+    params:
+      - {name: membership_id, type: org.shared.MembershipId}
+    filter: membership_id == param.membership_id
+    fields:
+      - {name: assignment_id, type: org.shared.AssignmentId}
+      - {name: position_id, type: org.shared.PositionId}
+      - {name: share, type: org.shared.Share}
+      - {name: acting, type: Boolean}
+      - {name: state, type: org.assignment.Assignment.State}
+    naming:
+      wire: assignments-of-membership
+      display: Assignments of a membership

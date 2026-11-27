@@ -1,0 +1,133 @@
+# Broken variant: the bakery's `prices` class decided by two positions for the whole
+# organization, and by two positions inside the `shop` unit (`class_with_two_deciders`).
+type: ess-scenario/7
+domain: org.design
+scenario: bakery-class-with-two-deciders
+summary: A second decides link of the same scope to one class is refused (ClassWithTwoDeciders); a link of another scope is added.
+
+arrange:
+  - instance: bakery
+    entity: org.design.Design
+  - instance: rev
+    entity: org.design.DesignRevision
+
+timeline:
+  - at: 2026-11-27T09:00:00Z
+    command: org.design.CreateDesign
+    input: {name: bakery, at: 2026-11-27T09:00:00Z}
+    outcome: created
+    capture: {instance: bakery, event: org.design.DesignCreated, field: design_id}
+  - at: 2026-11-27T09:00:01Z
+    command: org.design.OpenRevision
+    input: {design_id: {$instance: bakery}, at: 2026-11-27T09:00:01Z}
+    outcome: opened
+    capture: {instance: rev, event: org.design.RevisionOpened, field: revision_id}
+  - at: 2026-11-27T09:00:02Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000003
+      revision_id: {$instance: rev}
+      name: shop
+      block: Unit
+      dimensions: []
+      at: 2026-11-27T09:00:02Z
+    outcome: added
+  - at: 2026-11-27T09:00:03Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000005
+      revision_id: {$instance: rev}
+      name: head-baker
+      block: Position
+      dimensions: []
+      at: 2026-11-27T09:00:03Z
+    outcome: added
+  - at: 2026-11-27T09:00:04Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000006
+      revision_id: {$instance: rev}
+      name: counter
+      block: Position
+      dimensions: []
+      at: 2026-11-27T09:00:04Z
+    outcome: added
+  - at: 2026-11-27T09:00:05Z
+    command: org.design.AddPart
+    input:
+      part_id: 00000000-0000-4000-8000-000000000009
+      revision_id: {$instance: rev}
+      name: prices
+      block: DecisionClass
+      dimensions: []
+      at: 2026-11-27T09:00:05Z
+    outcome: added
+
+  # the whole organization
+  - at: 2026-11-27T09:00:06Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000009
+      carries: decides
+      mode: Sole
+      at: 2026-11-27T09:00:06Z
+    outcome: added
+  - at: 2026-11-27T09:00:07Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000006
+      to_part_id: 00000000-0000-4000-8000-000000000009
+      carries: decides
+      mode: Sole
+      at: 2026-11-27T09:00:07Z
+    outcome: second-decider-of-the-whole
+    error:
+      name: org.design.ClassWithTwoDeciders
+    no_events: [org.design.LinkAdded]
+
+  # inside the shop
+  - at: 2026-11-27T09:00:08Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000006
+      to_part_id: 00000000-0000-4000-8000-000000000009
+      carries: decides
+      scope_part_id: 00000000-0000-4000-8000-000000000003
+      mode: Advice
+      at: 2026-11-27T09:00:08Z
+    outcome: added
+  - at: 2026-11-27T09:00:09Z
+    command: org.design.AddLink
+    input:
+      revision_id: {$instance: rev}
+      from_part_id: 00000000-0000-4000-8000-000000000005
+      to_part_id: 00000000-0000-4000-8000-000000000009
+      carries: decides
+      scope_part_id: 00000000-0000-4000-8000-000000000003
+      mode: Sole
+      at: 2026-11-27T09:00:09Z
+    outcome: second-decider-of-the-scope
+    error:
+      name: org.design.ClassWithTwoDeciders
+    no_events: [org.design.LinkAdded]
+
+assert:
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    counts:
+      at_least: 2
+      at_most: 2
+  - view: org.design.Links
+    params:
+      revision_id: {$instance: rev}
+    contains:
+      from_name: counter
+      to_name: prices
+      carries: decides
+      scope_part_id: 00000000-0000-4000-8000-000000000003
+      mode: Advice

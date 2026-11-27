@@ -1,0 +1,516 @@
+domain: org.channel
+
+summary: >-
+  A path for messages between positions and units, with a form and an audience. A participation
+  puts one position, one unit or one relationship on a channel, with or without the right to
+  post. Default deny: a party outside the organization, which is a relationship, joins only a
+  channel whose audience is External. The block holds no message; it says who can reach whom.
+
+naming:
+  wire: channel
+  display: Channel
+
+types:
+  # UNMAPPED: whether a form limits who joins (a Direct channel with two participants, a
+  # Broadcast channel where few may post) is not stated. Taken: the form is stored and no
+  # command branches on it; `may_post` says who posts.
+  - name: org.channel.Form
+    kind: enum
+    variants: [Direct, Group, Broadcast, Queue, Board]
+    naming:
+      summary: >-
+        How a channel distributes what is posted. Direct is between two participants. Group
+        delivers to every participant. Broadcast delivers from few to many. Queue gives each
+        post to one participant that takes it. Board keeps posts for whoever reads it.
+
+  - name: org.channel.Member
+    kind: union
+    tag: kind
+    variants:
+      Position: org.shared.PositionId
+      Unit: org.shared.UnitId
+    naming:
+      summary: >-
+        A participant inside the organization: one position, or every position of one unit.
+        Exactly one, by construction.
+
+entities:
+  - name: org.channel.Channel
+    naming:
+      summary: >-
+        One path for messages. Open until closed; a closed channel stays on record and takes no
+        new participant.
+    identity:
+      name: channel_id
+      type: org.shared.ChannelId
+    fields:
+      - name: organization_id
+        type: org.shared.OrganizationId
+      - name: name
+        type: org.shared.Name
+      - name: form
+        type: org.channel.Form
+      # UNMAPPED: whether a channel's audience may change after it is opened is not stated.
+      # Narrowing it would have to refuse while a relationship is still Joined. Taken: the
+      # audience is set when the channel is opened and no command changes it.
+      - name: audience
+        type: org.shared.Audience
+        summary: >-
+          Who may be on the channel. Restricted and Internal admit positions and units only;
+          External admits relationships as well.
+      - name: opened_at
+        type: Timestamp
+      - name: closed_at
+        type: Optional<Timestamp>
+    relations:
+      - name: organization
+        kind: references
+        target: org.organization.Organization
+        cardinality: one
+        via: organization_id
+    lifecycle:
+      initial: Open
+      states: [Open, Closed]
+      terminal: [Closed]
+      transitions:
+        - name: close
+          from: [Open]
+          to: Closed
+
+  # UNMAPPED: a participant is a position, a unit or a relationship, which reads as one field
+  # `participant: union Position | Unit | Relationship`. A guard cannot read which variant a
+  # union holds (ESS-COMMAND-003, "cannot select `kind` from" the union), and an outcome cannot
+  # build a union value from an identifier (ESS-COMMAND-002, "a nested mapping fills a struct's
+  # fields"), so the refusal of a relationship on a channel that is not External could not be
+  # written over that field. Taken: the participant is held as `member` (a position or a unit)
+  # or `relationship_id`, exactly one of them, and each has its own command, so the refusal is
+  # a guard of AdmitRelationship.
+  - name: org.channel.Participation
+    naming:
+      summary: >-
+        One participant on one channel: a member (a position or a unit) or a relationship,
+        exactly one of the two. Joined until it leaves.
+    identity:
+      name: participation_id
+      type: org.shared.ParticipationId
+    fields:
+      - name: channel_id
+        type: org.shared.ChannelId
+      - name: member
+        type: Optional<org.channel.Member>
+        summary: The position or unit that participates. Absent for a relationship.
+      - name: relationship_id
+        type: Optional<org.shared.RelationshipId>
+        summary: The party outside the organization that participates. Absent for a member.
+      - name: may_post
+        type: Boolean
+        summary: Whether the participant may post, or only receives.
+      - name: joined_at
+        type: Timestamp
+      - name: left_at
+        type: Optional<Timestamp>
+    relations:
+      - name: channel
+        kind: references
+        target: org.channel.Channel
+        cardinality: one
+        via: channel_id
+      - name: relationship
+        kind: references
+        target: org.relationship.Relationship
+        cardinality: one
+        via: relationship_id
+    invariants:
+      - {any: [defined(member), defined(relationship_id)]}
+      - {not: {all: [defined(member), defined(relationship_id)]}}
+    lifecycle:
+      initial: Joined
+      states: [Joined, Left]
+      terminal: [Left]
+      transitions:
+        - name: leave
+          from: [Joined]
+          to: Left
+
+errors:
+  - name: org.channel.ChannelNotFound
+    summary: No channel of this identity is open or closed.
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+
+  - name: org.channel.ChannelAlreadyOpened
+    summary: A channel of this identity exists.
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+
+  - name: org.channel.OrganizationNotFound
+    summary: The channel names an organization that is not on record, and nothing was opened.
+    fields:
+      - {name: organization_id, type: org.shared.OrganizationId}
+
+  - name: org.channel.ChannelStateConflict
+    summary: The channel is already Closed.
+    fields:
+      - {name: state, type: org.channel.Channel.State}
+
+  - name: org.channel.ChannelNotOpen
+    summary: The channel is Closed. It takes no new participant.
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+
+  - name: org.channel.AudienceExcludesOutsiders
+    summary: >-
+      The channel's audience is not External, so a relationship does not join it. Default deny:
+      a party outside the organization reaches only what is opened to the outside.
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: audience, type: org.shared.Audience}
+
+  - name: org.channel.ParticipationNotFound
+    summary: No participation of this identity exists.
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+
+  - name: org.channel.ParticipationAlreadyExists
+    summary: A participation of this identity exists.
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+
+  - name: org.channel.ParticipationStateConflict
+    summary: The participant has already left.
+    fields:
+      - {name: state, type: org.channel.Participation.State}
+
+events:
+  - name: org.channel.ChannelOpened
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: form, type: org.channel.Form}
+      - {name: audience, type: org.shared.Audience}
+      - {name: at, type: Timestamp}
+
+  - name: org.channel.ChannelClosed
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: at, type: Timestamp}
+
+  - name: org.channel.MemberJoined
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: member, type: org.channel.Member}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.channel.RelationshipAdmitted
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.channel.PostingRightChanged
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+
+  - name: org.channel.ParticipantLeft
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: at, type: Timestamp}
+
+commands:
+  - name: org.channel.OpenChannel
+    naming:
+      wire: open-channel
+      display: Open a channel
+    input:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: form, type: org.channel.Form}
+      - {name: audience, type: org.shared.Audience}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-opened
+        existing_instance: true
+        error: org.channel.ChannelAlreadyOpened
+        payload:
+          org.channel.ChannelAlreadyOpened: {channel_id: input.channel_id}
+      - name: no-such-organization
+        when_related: {via: input.organization_id, exists: false}
+        error: org.channel.OrganizationNotFound
+        payload:
+          org.channel.OrganizationNotFound: {organization_id: input.organization_id}
+      - name: opened
+        creates: org.channel.Channel
+        instance: channel_id
+        sets:
+          organization_id: input.organization_id
+          name: input.name
+          form: input.form
+          audience: input.audience
+          opened_at: input.at
+        emits: [org.channel.ChannelOpened]
+        payload:
+          org.channel.ChannelOpened:
+            channel_id: input.channel_id
+            organization_id: input.organization_id
+            name: input.name
+            form: input.form
+            audience: input.audience
+            at: input.at
+        summary: The channel is Open and has no participant.
+
+  # UNMAPPED: what closing a channel does to the participations still Joined is not stated.
+  # Taken: they stay Joined on record and may still leave; a closed channel takes no new one.
+  - name: org.channel.CloseChannel
+    naming:
+      wire: close-channel
+      display: Close a channel
+    input:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-channel
+        unknown_instance: true
+        error: org.channel.ChannelNotFound
+        payload:
+          org.channel.ChannelNotFound: {channel_id: input.channel_id}
+      - name: closed
+        moves: org.channel.Channel.close
+        instance: channel_id
+        sets:
+          closed_at: input.at
+        emits: [org.channel.ChannelClosed]
+        payload:
+          org.channel.ChannelClosed:
+            channel_id: input.channel_id
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.channel.ChannelStateConflict
+        payload:
+          org.channel.ChannelStateConflict: {state: {subject: state}}
+
+  # UNMAPPED: whether one participant may hold two Joined participations on one channel is not
+  # stated. Taken: not refused.
+  - name: org.channel.JoinChannel
+    naming:
+      wire: join-channel
+      display: Put a position or a unit on a channel
+      summary: A member of the organization joins an open channel of any audience.
+    input:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: member, type: org.channel.Member}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-exists
+        existing_instance: true
+        error: org.channel.ParticipationAlreadyExists
+        payload:
+          org.channel.ParticipationAlreadyExists: {participation_id: input.participation_id}
+      - name: no-such-channel
+        when_related: {via: input.channel_id, exists: false}
+        error: org.channel.ChannelNotFound
+        payload:
+          org.channel.ChannelNotFound: {channel_id: input.channel_id}
+      - name: channel-not-open
+        when_related: {via: input.channel_id, predicate: state != Open}
+        error: org.channel.ChannelNotOpen
+        payload:
+          org.channel.ChannelNotOpen: {channel_id: input.channel_id}
+      - name: joined
+        creates: org.channel.Participation
+        instance: participation_id
+        sets:
+          channel_id: input.channel_id
+          member: input.member
+          may_post: input.may_post
+          joined_at: input.at
+        emits: [org.channel.MemberJoined]
+        payload:
+          org.channel.MemberJoined:
+            participation_id: input.participation_id
+            channel_id: input.channel_id
+            member: input.member
+            may_post: input.may_post
+            at: input.at
+
+  # UNMAPPED: the relationship is not checked for existence. A refusal over the relationship's
+  # row beside the two refusals over the channel's row is refused (ESS-COMMAND-004: a Closed
+  # channel whose audience is not External selects `channel-not-open` and
+  # `audience-excludes-outsiders` once a second related row is guarded), so a participation may
+  # name a relationship that is not on record.
+  - name: org.channel.AdmitRelationship
+    naming:
+      wire: admit-relationship
+      display: Put a relationship on a channel
+      summary: >-
+        A party outside the organization joins a channel. Only a channel whose audience is
+        External admits it.
+    input:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: relationship_id, type: org.shared.RelationshipId}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: already-exists
+        existing_instance: true
+        error: org.channel.ParticipationAlreadyExists
+        payload:
+          org.channel.ParticipationAlreadyExists: {participation_id: input.participation_id}
+      - name: no-such-channel
+        when_related: {via: input.channel_id, exists: false}
+        error: org.channel.ChannelNotFound
+        payload:
+          org.channel.ChannelNotFound: {channel_id: input.channel_id}
+      - name: channel-not-open
+        when_related: {via: input.channel_id, predicate: state != Open}
+        error: org.channel.ChannelNotOpen
+        payload:
+          org.channel.ChannelNotOpen: {channel_id: input.channel_id}
+      - name: audience-excludes-outsiders
+        when_related: {via: input.channel_id, predicate: audience != External}
+        error: org.channel.AudienceExcludesOutsiders
+        payload:
+          org.channel.AudienceExcludesOutsiders:
+            channel_id: input.channel_id
+            audience: {related: {via: input.channel_id, field: audience}}
+      - name: admitted
+        creates: org.channel.Participation
+        instance: participation_id
+        sets:
+          channel_id: input.channel_id
+          relationship_id: input.relationship_id
+          may_post: input.may_post
+          joined_at: input.at
+        emits: [org.channel.RelationshipAdmitted]
+        payload:
+          org.channel.RelationshipAdmitted:
+            participation_id: input.participation_id
+            channel_id: input.channel_id
+            relationship_id: input.relationship_id
+            may_post: input.may_post
+            at: input.at
+
+  - name: org.channel.SetPostingRight
+    naming:
+      wire: set-posting-right
+      display: Give or take a participant's right to post
+    input:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: may_post, type: Boolean}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-participation
+        unknown_instance: true
+        error: org.channel.ParticipationNotFound
+        payload:
+          org.channel.ParticipationNotFound: {participation_id: input.participation_id}
+      - name: left
+        when_subject:
+          predicate: state == Left
+        error: org.channel.ParticipationStateConflict
+        payload:
+          org.channel.ParticipationStateConflict: {state: {subject: state}}
+      - name: changed
+        updates: org.channel.Participation
+        instance: participation_id
+        sets:
+          may_post: input.may_post
+        emits: [org.channel.PostingRightChanged]
+        payload:
+          org.channel.PostingRightChanged:
+            participation_id: input.participation_id
+            channel_id: {subject: channel_id}
+            may_post: input.may_post
+            at: input.at
+
+  - name: org.channel.LeaveChannel
+    naming:
+      wire: leave-channel
+      display: Take a participant off a channel
+    input:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-such-participation
+        unknown_instance: true
+        error: org.channel.ParticipationNotFound
+        payload:
+          org.channel.ParticipationNotFound: {participation_id: input.participation_id}
+      - name: left
+        moves: org.channel.Participation.leave
+        instance: participation_id
+        sets:
+          left_at: input.at
+        emits: [org.channel.ParticipantLeft]
+        payload:
+          org.channel.ParticipantLeft:
+            participation_id: input.participation_id
+            channel_id: {subject: channel_id}
+            at: input.at
+      - name: wrong-state
+        wrong_state: true
+        error: org.channel.ParticipationStateConflict
+        payload:
+          org.channel.ParticipationStateConflict: {state: {subject: state}}
+
+views:
+  - name: org.channel.Channels
+    source: org.channel.Channel
+    consistency: read_your_writes
+    fields:
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: organization_id, type: org.shared.OrganizationId}
+      - {name: name, type: org.shared.Name}
+      - {name: form, type: org.channel.Form}
+      - {name: audience, type: org.shared.Audience}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+      - {name: state, type: org.channel.Channel.State}
+    naming:
+      wire: channels
+      display: Channels
+
+  - name: org.channel.Participations
+    source: org.channel.Participation
+    consistency: read_your_writes
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: channel_id, type: org.shared.ChannelId}
+      - {name: member, type: Optional<org.channel.Member>}
+      - {name: relationship_id, type: Optional<org.shared.RelationshipId>}
+      - {name: may_post, type: Boolean}
+      - {name: joined_at, type: Timestamp}
+      - {name: left_at, type: Optional<Timestamp>}
+      - {name: state, type: org.channel.Participation.State}
+    naming:
+      wire: participations
+      display: Participations
+
+  - name: org.channel.ChannelParticipants
+    source: org.channel.Participation
+    consistency: read_your_writes
+    params:
+      - {name: channel_id, type: org.shared.ChannelId}
+    filter:
+      all: [state == Joined, channel_id == param.channel_id]
+    fields:
+      - {name: participation_id, type: org.shared.ParticipationId}
+      - {name: member, type: Optional<org.channel.Member>}
+      - {name: relationship_id, type: Optional<org.shared.RelationshipId>}
+      - {name: may_post, type: Boolean}
+    naming:
+      wire: channel-participants
+      display: Participants joined to a channel

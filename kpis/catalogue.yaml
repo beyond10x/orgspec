@@ -1,0 +1,1345 @@
+format: orgspec-kpis/1
+kpis:
+  - id: retired_party_with_membership
+    block: party
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Memberships still open for a party that was retired.
+    how: Memberships with a MemberJoined or MemberInvited and no MembershipEnded whose party has a PartyRetired. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.party.PartyRetired, org.membership.MemberInvited, org.membership.MemberJoined, org.membership.MembershipEnded]
+    status: planned
+
+  - id: membership_party_registered_share
+    block: party
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of memberships whose party is a registered party.
+    how: MemberInvited events whose party_id has a PartyRegistered before them, divided by all MemberInvited events of the organization. Must be 1.
+    direction: higher
+    gate: true
+    reads: [org.party.PartyRegistered, org.membership.MemberInvited]
+    status: planned
+
+  - id: activity_in_dissolved_organization
+    block: organization
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Members joined, units formed and requests received after the organization was dissolved.
+    how: MemberJoined, UnitFormed and RequestReceived events of an organization timestamped after its OrganizationDissolved. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.organization.OrganizationDissolved, org.membership.MemberJoined, org.unit.UnitFormed, org.work.RequestReceived]
+    status: planned
+
+  - id: organization_with_governing_unit_share
+    block: organization
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of started organizations that have a governing unit.
+    how: The organization and the organizations whose parent chain (OrganizationFounded, ParentSet, ParentCleared) reaches it, counted when started, not dissolved and holding at least one UnitFormed of nature governing without a UnitDisbanded, divided by those started and not dissolved.
+    direction: higher
+    gate: false
+    reads: [org.organization.OrganizationFounded, org.organization.OrganizationStarted, org.organization.OrganizationDissolved, org.organization.ParentSet, org.organization.ParentCleared, org.unit.UnitFormed, org.unit.UnitDisbanded]
+    status: planned
+
+  - id: organization_suspended_share
+    block: organization
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of its life an organization spent suspended.
+    how: Seconds between each OrganizationSuspended and the next OrganizationResumed or OrganizationDissolved, summed, divided by the seconds from OrganizationStarted to OrganizationDissolved or to the end of the window.
+    direction: lower
+    gate: false
+    reads: [org.organization.OrganizationStarted, org.organization.OrganizationSuspended, org.organization.OrganizationResumed, org.organization.OrganizationDissolved]
+    status: planned
+
+  - id: part_outside_organization
+    block: unit
+    measures: correctness
+    over: design
+    unit: count
+    summary: Units placed in no organization or unit, and positions placed in no unit.
+    how: Refusals of the structural rule part_outside_organization that orgspec check prints for a design, one per unit part whose `in` names no organization or unit part and per position part whose `in` names no unit part. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: position_in_disbanded_unit
+    block: unit
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Open positions that sit in a disbanded unit.
+    how: Positions with a PositionEstablished and no PositionClosed whose unit, after the last PositionMoved, has a UnitDisbanded. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.unit.UnitDisbanded, org.position.PositionEstablished, org.position.PositionMoved, org.position.PositionClosed]
+    status: planned
+
+  - id: unit_with_position_share
+    block: unit
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of units that hold at least one position, directly or in a unit below them.
+    how: Units formed and not disbanded with at least one open position in them or in a unit under them in the tree (UnitFormed, UnitMoved, UnitMovedToTop), divided by units formed and not disbanded.
+    direction: higher
+    gate: false
+    reads: [org.unit.UnitFormed, org.unit.UnitMoved, org.unit.UnitMovedToTop, org.unit.UnitDisbanded, org.position.PositionEstablished, org.position.PositionMoved, org.position.PositionClosed]
+    status: planned
+
+  - id: unknown_role
+    block: role
+    measures: correctness
+    over: design
+    unit: count
+    summary: Positions whose role names no role part.
+    how: Refusals of the structural rule unknown_role that orgspec check prints for a design, one per position part whose `role` names no part of block role. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: role_with_expectations_share
+    block: role
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of active roles that state at least one expectation.
+    how: Roles with a RoleActivated and no RoleRetired whose expectations list in the last of RoleDrafted, RoleDraftEdited and RoleRevised is not empty, divided by roles activated and not retired.
+    direction: higher
+    gate: false
+    reads: [org.role.RoleDrafted, org.role.RoleDraftEdited, org.role.RoleActivated, org.role.RoleRevised, org.role.RoleRetired]
+    status: planned
+
+  - id: role_revision_count
+    block: role
+    measures: quality
+    over: role
+    unit: count
+    summary: Times an active role's purpose or expectations changed in a window.
+    how: RoleRevised events of the role in the window. A role that keeps changing tells its holders little about what is expected.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.role.RoleRevised]
+    status: planned
+
+  - id: reporting_cycle
+    block: position
+    measures: correctness
+    over: design
+    unit: count
+    summary: Cycles in the reporting lines.
+    how: Refusals of the structural rule reporting_cycle that orgspec check prints for a design, one per cycle formed by `reports_to` links. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: seats_filled_share
+    block: position
+    measures: completeness
+    over: unit
+    unit: share
+    summary: Share of a unit's seats that are held.
+    how: Per open position the sum of the shares of its started and not ended assignments (AssignmentProposed, ShareChanged), capped at its seats, summed over the unit's positions and divided by the sum of their seats (PositionEstablished, SeatsSet). The vacant share is 1 minus this.
+    direction: higher
+    postures: { explore: ignore, scale: higher, operate: higher }
+    gate: false
+    reads: [org.position.PositionEstablished, org.position.SeatsSet, org.position.PositionMoved, org.position.PositionClosed, org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.ShareChanged, org.assignment.AssignmentEnded]
+    status: planned
+
+  - id: span_of_control
+    block: position
+    measures: quality
+    over: position
+    unit: ratio
+    summary: Seats that report to a position, per seat of that position.
+    how: Seats of the open positions whose reports_to names the position (PositionEstablished, ReportsToSet, ReportsToCleared, SeatsSet), divided by the position's own seats. Positions nobody reports to are left out.
+    direction: lower
+    postures: { explore: lower, scale: lower, operate: higher }
+    gate: false
+    reads: [org.position.PositionEstablished, org.position.SeatsSet, org.position.ReportsToSet, org.position.ReportsToCleared, org.position.PositionClosed]
+    status: planned
+
+  - id: reporting_depth
+    block: position
+    measures: quality
+    over: organization
+    unit: count
+    summary: Depth of the reporting tree.
+    how: Number of reports_to steps on the longest chain from an open position to a position that reports to no position, over the positions in the organization's units.
+    direction: lower
+    gate: false
+    reads: [org.position.PositionEstablished, org.position.ReportsToSet, org.position.ReportsToCleared, org.position.PositionClosed, org.unit.UnitFormed]
+    status: planned
+
+  - id: assignment_without_active_membership
+    block: membership
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Positions held through a membership that is suspended or ended.
+    how: Assignments with an AssignmentStarted and no AssignmentEnded whose membership has a MembershipEnded, or a MembershipSuspended with no later MembershipResumed. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.membership.MembershipSuspended, org.membership.MembershipResumed, org.membership.MembershipEnded, org.assignment.AssignmentStarted, org.assignment.AssignmentEnded]
+    status: planned
+
+  - id: member_with_position_share
+    block: membership
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of active memberships that hold at least one position.
+    how: Memberships joined, not suspended and not ended with at least one started and not ended assignment, divided by memberships joined, not suspended and not ended.
+    direction: higher
+    gate: false
+    reads: [org.membership.MemberJoined, org.membership.MembershipSuspended, org.membership.MembershipResumed, org.membership.MembershipEnded, org.assignment.AssignmentStarted, org.assignment.AssignmentEnded]
+    status: planned
+
+  - id: membership_ended_share
+    block: membership
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of the active memberships of a window's start that ended in the window.
+    how: MembershipEnded events in the window with ended_from Active or Suspended, divided by the memberships joined and not ended at the start of the window.
+    direction: lower
+    gate: false
+    reads: [org.membership.MemberJoined, org.membership.MembershipEnded]
+    status: planned
+
+  - id: agent_without_accountable_human
+    block: assignment
+    measures: correctness
+    over: design
+    unit: count
+    summary: Positions held by agents with no chain to a position held by humans.
+    how: Refusals of the structural rule agent_without_accountable_human that orgspec check prints for a design, one per position part held by agents, alone or mixed, whose `answers_to` chain does not end at a position held by humans. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: agent_assignment_chain_broken
+    block: assignment
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Running assignments of agents whose chain of answering positions reaches no position held by a human.
+    how: Assignments started and not ended with holder_kind agent, followed from answers_to (AssignmentProposed, AccountablePositionChanged) through the started assignments of each answering position, that reach no position with a started assignment of holder_kind human. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.AccountablePositionChanged, org.assignment.AssignmentEnded]
+    status: planned
+
+  - id: acting_assignment_share
+    block: assignment
+    measures: quality
+    over: unit
+    unit: share
+    summary: Share of a unit's held seats that are held in an acting capacity.
+    how: Shares of the started and not ended assignments proposed with acting true, summed over the unit's positions, divided by the summed shares of all started and not ended assignments on those positions.
+    direction: lower
+    gate: false
+    reads: [org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.ShareChanged, org.assignment.AssignmentEnded, org.position.PositionEstablished, org.position.PositionMoved]
+    status: planned
+
+  - id: seat_refill_days
+    block: assignment
+    measures: quality
+    over: role
+    unit: days
+    summary: Days a seat stays empty between one holder and the next.
+    how: Days from an AssignmentEnded with ended_from Started that leaves a seat of a position uncovered to the next AssignmentStarted on that position; the mean over the positions that play the role.
+    direction: lower
+    gate: false
+    reads: [org.assignment.AssignmentStarted, org.assignment.AssignmentEnded, org.position.PositionEstablished, org.position.SeatsSet]
+    status: planned
+
+  - id: requirement_on_retired_skill
+    block: competence
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Requirements of roles that name a retired skill.
+    how: Requirements with a RequirementSet and no RequirementDropped whose skill has a SkillRetired. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.competence.SkillRetired, org.competence.RequirementSet, org.competence.RequirementDropped]
+    status: planned
+
+  - id: requirement_met_share
+    block: competence
+    measures: completeness
+    over: role
+    unit: share
+    summary: Share of a role's skill requirements that the holders of its seats meet.
+    how: Pairs of a started assignment on a position that plays the role and a requirement of the role where the holding party's proficiency level (ProficiencyRecorded, ProficiencyReassessed, not withdrawn) is at or above the required level (RequirementSet, RequirementChanged), divided by all such pairs.
+    direction: higher
+    gate: false
+    reads: [org.competence.RequirementSet, org.competence.RequirementChanged, org.competence.RequirementDropped, org.competence.ProficiencyRecorded, org.competence.ProficiencyReassessed, org.competence.ProficiencyWithdrawn, org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.AssignmentEnded, org.position.PositionEstablished, org.membership.MemberJoined]
+    status: planned
+
+  - id: skill_with_single_holder
+    block: competence
+    measures: quality
+    over: organization
+    unit: count
+    summary: Required skills that exactly one held seat covers at the required level.
+    how: Skills named by a requirement in force for which exactly one started and not ended assignment belongs to a party whose proficiency is at or above the lowest level any role requires. The count is of skills, not of holders.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.competence.RequirementSet, org.competence.RequirementChanged, org.competence.RequirementDropped, org.competence.ProficiencyRecorded, org.competence.ProficiencyReassessed, org.competence.ProficiencyWithdrawn, org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.AssignmentEnded, org.membership.MemberJoined]
+    status: planned
+
+  - id: class_without_decider
+    block: decision
+    measures: correctness
+    over: design
+    unit: count
+    summary: Decision classes nobody decides.
+    how: Refusals of the structural rule class_without_decider that orgspec check prints for a design, one per decision class part with no incoming `decides` link. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: class_with_two_deciders
+    block: decision
+    measures: correctness
+    over: design
+    unit: count
+    summary: Decision classes with two deciders for the same scope.
+    how: Refusals of the structural rule class_with_two_deciders that orgspec check prints for a design, one per pair of `decides` links to one class with the same `scope`, where no scope means the whole organization. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: decider_not_allowed
+    block: decision
+    measures: correctness
+    over: design
+    unit: count
+    summary: Decision rights held by a part that is neither a position nor a governing unit.
+    how: Refusals of the structural rule decider_not_allowed that orgspec check prints for a design, one per `decides` link that starts at a part that is neither a position nor a unit of nature governing. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: decision_without_right
+    block: decision
+    measures: correctness
+    over: decision_class
+    unit: count
+    summary: Decisions taken by a position that held no right to take them.
+    how: DecisionTaken events whose right_id names no right enacted and not revoked at that instant, or whose decided_by is neither the deciding position of that right, a position in its deciding unit, nor the `to` of a delegation of the class granted and neither revoked nor expired. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.decision.DecisionTaken, org.decision.DecisionRightProposed, org.decision.DecisionRightEnacted, org.decision.DecisionRightRevoked, org.delegation.DelegationGranted, org.delegation.DelegationRevoked, org.delegation.DelegationExpired, org.position.PositionEstablished, org.position.PositionMoved]
+    status: planned
+
+  - id: decision_latency_seconds
+    block: decision
+    measures: quality
+    over: decision_class
+    unit: seconds
+    summary: Time a decision waits for its decider.
+    how: Seconds from DecisionOpened to the DecisionTaken or DecisionTakenOnDefault of the same decision; the median per decision class. Withdrawn decisions are left out.
+    direction: lower
+    gate: false
+    reads: [org.decision.DecisionOpened, org.decision.DecisionTaken, org.decision.DecisionTakenOnDefault, org.decision.DecisionWithdrawn]
+    status: simulated
+
+  - id: decision_on_default_share
+    block: decision
+    measures: quality
+    over: decision_class
+    unit: share
+    summary: Share of decisions that took their default because the decider did not answer in time.
+    how: DecisionTakenOnDefault events divided by the sum of DecisionTaken and DecisionTakenOnDefault events of the class.
+    direction: lower
+    gate: false
+    reads: [org.decision.DecisionTaken, org.decision.DecisionTakenOnDefault]
+    status: planned
+
+  - id: delegation_without_right
+    block: delegation
+    measures: correctness
+    over: design
+    unit: count
+    summary: Delegations of a decision class the delegating part does not hold.
+    how: Refusals of the structural rule delegation_without_right that orgspec check prints for a design, one per `delegates` link whose `class` its `from` part neither decides nor holds by a delegation. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: delegation_exceeds_limit
+    block: delegation
+    measures: correctness
+    over: design
+    unit: count
+    summary: Delegations with a limit above the limit of the delegating part.
+    how: Refusals of the structural rule delegation_exceeds_limit that orgspec check prints for a design, one per `delegates` link whose `limit` is above the limit its `from` part holds for the class. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: approval_above_delegation_limit
+    block: delegation
+    measures: correctness
+    over: decision_class
+    unit: count
+    summary: Budgets approved under a delegation whose limit is below the budget's amount.
+    how: BudgetApproved events whose approving decision (the DecisionTaken named by approved_by) was decided by the `to` position of a delegation in force for the decision's class, where that position is not the decider of the right the decision names and the amount of the BudgetProposed is above the delegation's limit. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.delegation.DelegationGranted, org.delegation.DelegationRevoked, org.delegation.DelegationExpired, org.decision.DecisionTaken, org.decision.DecisionRightProposed, org.budget.BudgetProposed, org.budget.BudgetApproved]
+    status: planned
+
+  - id: delegation_with_end_share
+    block: delegation
+    measures: completeness
+    over: decision_class
+    unit: share
+    summary: Share of the delegations in force that carry an end.
+    how: DelegationGranted events with an `until`, neither revoked nor expired, divided by all DelegationGranted events of the class neither revoked nor expired.
+    direction: higher
+    gate: false
+    reads: [org.delegation.DelegationGranted, org.delegation.DelegationRevoked, org.delegation.DelegationExpired]
+    status: planned
+
+  - id: delegation_chain_length
+    block: delegation
+    measures: quality
+    over: decision_class
+    unit: count
+    summary: Longest chain of delegations that passes a decision class on.
+    how: Number of delegations in force on the longest path where the `to` of one DelegationGranted of the class is the `from` of the next.
+    direction: lower
+    gate: false
+    reads: [org.delegation.DelegationGranted, org.delegation.DelegationRevoked, org.delegation.DelegationExpired]
+    status: planned
+
+  - id: policy_adopted_without_decision
+    block: policy
+    measures: correctness
+    over: policy
+    unit: count
+    summary: Adoptions and revisions of a policy that no taken decision stands behind.
+    how: PolicyAdopted and PolicyRevised events whose adopted_by names no DecisionTaken or DecisionTakenOnDefault timestamped before them. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.policy.PolicyAdopted, org.policy.PolicyRevised, org.decision.DecisionTaken, org.decision.DecisionTakenOnDefault]
+    status: planned
+
+  - id: waiver_past_end
+    block: policy
+    measures: correctness
+    over: policy
+    unit: count
+    summary: Waivers still open after their end or after their policy was retired.
+    how: WaiverGranted events with no WaiverEnded whose `until` lies before the end of the window or whose policy has a PolicyRetired. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.policy.WaiverGranted, org.policy.WaiverEnded, org.policy.PolicyRetired]
+    status: planned
+
+  - id: policy_waiver_count
+    block: policy
+    measures: quality
+    over: policy
+    unit: count
+    summary: Open waivers from a policy in force.
+    how: WaiverGranted events of the policy with no WaiverEnded, counted while the policy is adopted and not retired. A policy with many waivers binds little of its scope.
+    direction: lower
+    gate: false
+    reads: [org.policy.PolicyAdopted, org.policy.PolicyRetired, org.policy.WaiverGranted, org.policy.WaiverEnded]
+    status: planned
+
+  - id: demand_without_offering
+    block: offering
+    measures: correctness
+    over: design
+    unit: count
+    summary: Demand links that do not run from a relationship to an offering.
+    how: Refusals of the structural rule demand_without_offering that orgspec check prints for a design, one per `demand` link whose `from` is no relationship part or whose `to` is no offering part. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: request_for_unoffered_offering
+    block: offering
+    measures: correctness
+    over: offering
+    unit: count
+    summary: Requests received for an offering that was not on offer.
+    how: RequestReceived events whose offering has no OfferingOffered before them or an OfferingWithdrawn before them. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.offering.OfferingOffered, org.offering.OfferingWithdrawn, org.work.RequestReceived]
+    status: planned
+
+  - id: offering_with_engagement_share
+    block: offering
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the external offerings on offer that at least one relationship takes.
+    how: Offerings proposed with internal false, offered and not withdrawn, with at least one EngagementOpened that has no EngagementClosed, divided by offerings proposed with internal false, offered and not withdrawn.
+    direction: higher
+    gate: false
+    reads: [org.offering.OfferingProposed, org.offering.OfferingOffered, org.offering.OfferingWithdrawn, org.relationship.EngagementOpened, org.relationship.EngagementClosed]
+    status: planned
+
+  - id: request_fulfilled_share
+    block: offering
+    measures: quality
+    over: offering
+    unit: share
+    summary: Share of the closed requests for an offering that were fulfilled.
+    how: RequestFulfilled events divided by the sum of RequestFulfilled, RequestDeclined and RequestCancelled events for the offering named by their RequestReceived.
+    direction: higher
+    gate: false
+    reads: [org.work.RequestReceived, org.work.RequestFulfilled, org.work.RequestDeclined, org.work.RequestCancelled]
+    status: planned
+
+  - id: engagement_on_ended_relationship
+    block: relationship
+    measures: correctness
+    over: relationship
+    unit: count
+    summary: Engagements still open after their relationship ended.
+    how: EngagementOpened events with no EngagementClosed whose relationship has a RelationshipEnded. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.relationship.RelationshipEnded, org.relationship.EngagementOpened, org.relationship.EngagementClosed]
+    status: planned
+
+  - id: relationship_with_engagement_share
+    block: relationship
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the active customer and beneficiary relationships that take at least one offering.
+    how: Relationships opened with tie customer or beneficiary, activated, not suspended and not ended, with at least one open engagement, divided by all such relationships.
+    direction: higher
+    gate: false
+    reads: [org.relationship.RelationshipOpened, org.relationship.RelationshipActivated, org.relationship.RelationshipSuspended, org.relationship.RelationshipResumed, org.relationship.RelationshipEnded, org.relationship.EngagementOpened, org.relationship.EngagementClosed]
+    status: planned
+
+  - id: engagements_per_relationship
+    block: relationship
+    measures: quality
+    over: organization
+    unit: ratio
+    summary: Open engagements per active relationship.
+    how: EngagementOpened events with no EngagementClosed, divided by the relationships activated, not suspended and not ended that hold at least one of them.
+    direction: higher
+    gate: false
+    reads: [org.relationship.RelationshipActivated, org.relationship.RelationshipSuspended, org.relationship.RelationshipResumed, org.relationship.RelationshipEnded, org.relationship.EngagementOpened, org.relationship.EngagementClosed]
+    status: planned
+
+  - id: relationship_ended_share
+    block: relationship
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of the relationships active at a window's start that ended in the window.
+    how: RelationshipEnded events in the window, divided by the relationships activated and not ended at the start of the window.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.relationship.RelationshipActivated, org.relationship.RelationshipEnded]
+    status: planned
+
+  - id: goal_committed_without_key_result
+    block: goal
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Committed goals with no key result and no goal below them.
+    how: Goals with a GoalCommitted and none of GoalAchieved, GoalMissed and GoalDropped that have no KeyResultAdded and are the parent of no other proposed goal. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.goal.GoalProposed, org.goal.GoalCommitted, org.goal.GoalAchieved, org.goal.GoalMissed, org.goal.GoalDropped, org.goal.KeyResultAdded]
+    status: planned
+
+  - id: key_result_current_share
+    block: goal
+    measures: completeness
+    over: goal
+    unit: share
+    summary: Share of a committed goal's key results that have a current value.
+    how: Key results added to the goal with at least one KeyResultMeasured, divided by the key results added to the goal, counted while the goal is committed and not ended.
+    direction: higher
+    gate: false
+    reads: [org.goal.GoalCommitted, org.goal.GoalAchieved, org.goal.GoalMissed, org.goal.GoalDropped, org.goal.KeyResultAdded, org.goal.KeyResultMeasured]
+    status: planned
+
+  - id: goal_achieved_share
+    block: goal
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of the goals that ended in a window that were achieved.
+    how: GoalAchieved events divided by the sum of GoalAchieved, GoalMissed and GoalDropped events of the window, over goals that were committed.
+    direction: higher
+    postures: { explore: ignore, scale: higher, operate: higher }
+    gate: false
+    reads: [org.goal.GoalCommitted, org.goal.GoalAchieved, org.goal.GoalMissed, org.goal.GoalDropped]
+    status: planned
+
+  - id: key_result_measurement_age_days
+    block: goal
+    measures: quality
+    over: goal
+    unit: days
+    summary: Age of the oldest current value among a committed goal's open key results.
+    how: Days from the last KeyResultMeasured of each key result with neither KeyResultMet nor KeyResultMissed to the end of the window; the largest over the goal's key results.
+    direction: lower
+    gate: false
+    reads: [org.goal.KeyResultAdded, org.goal.KeyResultMeasured, org.goal.KeyResultMet, org.goal.KeyResultMissed]
+    status: planned
+
+  - id: critical_asset_without_accountable
+    block: asset
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Assets in use of high or critical criticality that no position answers for.
+    how: Assets put in use and not retired whose criticality (AssetPlanned, AssetCriticalityChanged) is High or Critical and whose subject has no AccountabilityAssigned or AccountabilityTransferred that is not followed by an AccountabilityReleased. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.asset.AssetPlanned, org.asset.AssetPutInUse, org.asset.AssetCriticalityChanged, org.asset.AssetRetired, org.responsibility.AccountabilityAssigned, org.responsibility.AccountabilityTransferred, org.responsibility.AccountabilityReleased]
+    status: planned
+
+  - id: critical_asset_with_risk_share
+    block: asset
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the assets in use of high or critical criticality that have an identified risk.
+    how: Assets put in use and not retired of criticality High or Critical that are the subject of at least one RiskIdentified, divided by all such assets.
+    direction: higher
+    gate: false
+    reads: [org.asset.AssetPlanned, org.asset.AssetPutInUse, org.asset.AssetCriticalityChanged, org.asset.AssetRetired, org.risk.RiskIdentified]
+    status: planned
+
+  - id: asset_planned_days
+    block: asset
+    measures: quality
+    over: organization
+    unit: days
+    summary: Days an asset stays planned before it is put in use.
+    how: Days from AssetPlanned to AssetPutInUse of the same asset; the median over the assets put in use in the window.
+    direction: lower
+    gate: false
+    reads: [org.asset.AssetPlanned, org.asset.AssetPutInUse]
+    status: planned
+
+  - id: spend_on_unapproved_budget
+    block: budget
+    measures: correctness
+    over: budget
+    unit: count
+    summary: Spend recorded on a budget that was not approved or was already closed.
+    how: BudgetSpendRecorded events with no BudgetApproved of the budget before them or with its BudgetClosed before them. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.budget.BudgetApproved, org.budget.BudgetSpendRecorded, org.budget.BudgetClosed]
+    status: planned
+
+  - id: budget_approved_share
+    block: budget
+    measures: completeness
+    over: unit
+    unit: share
+    summary: Share of a unit's proposed budgets whose period has begun that are approved.
+    how: Budgets proposed for the unit whose period has begun and that have a BudgetApproved, divided by the budgets proposed for the unit whose period has begun.
+    direction: higher
+    gate: false
+    reads: [org.budget.BudgetProposed, org.budget.BudgetApproved]
+    status: planned
+
+  - id: budget_overrun_share
+    block: budget
+    measures: quality
+    over: unit
+    unit: share
+    summary: Share of a unit's approved budgets that were overrun.
+    how: Budgets of the unit with at least one BudgetOverrun, divided by the unit's budgets with a BudgetApproved, over the budgets whose period ends in the window.
+    direction: lower
+    gate: false
+    reads: [org.budget.BudgetProposed, org.budget.BudgetApproved, org.budget.BudgetOverrun]
+    status: planned
+
+  - id: budget_unspent_share
+    block: budget
+    measures: quality
+    over: budget
+    unit: share
+    summary: Share of a closed budget's amount that was not spent.
+    how: The amount of BudgetProposed minus the spent of BudgetClosed, not below 0, divided by the amount.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.budget.BudgetProposed, org.budget.BudgetClosed]
+    status: planned
+
+  - id: step_role_without_position
+    block: process
+    measures: correctness
+    over: process
+    unit: count
+    summary: Steps of a process in force whose role no open position plays.
+    how: Steps listed and not removed on a process put in force and not retired whose role_id is the role of no position established and not closed. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.process.ProcessPutInForce, org.process.ProcessRetired, org.process.StepListed, org.process.StepRemoved, org.position.PositionEstablished, org.position.PositionClosed]
+    status: planned
+
+  - id: decide_step_with_class_share
+    block: process
+    measures: completeness
+    over: process
+    unit: share
+    summary: Share of a process's deciding steps that name the decision class they wait for.
+    how: Steps listed and not removed with activity decide and a decision_class_id, divided by the steps listed and not removed with activity decide. Must be 1.
+    direction: higher
+    gate: true
+    reads: [org.process.StepListed, org.process.StepRemoved]
+    status: planned
+
+  - id: process_handoff_count
+    block: process
+    measures: quality
+    over: process
+    unit: count
+    summary: Seams a piece of work crosses when it follows the process.
+    how: Pairs of steps next to each other by ordinal, among the steps listed and not removed, whose role_id differs.
+    direction: lower
+    gate: false
+    reads: [org.process.StepListed, org.process.StepRemoved]
+    status: planned
+
+  - id: work_on_process_share
+    block: process
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of work items that follow a step of a process.
+    how: WorkItemOpened events that carry a process_id and a step_id, divided by all WorkItemOpened events of the window.
+    direction: higher
+    postures: { explore: ignore, scale: higher, operate: higher }
+    gate: false
+    reads: [org.work.WorkItemOpened]
+    status: planned
+
+  - id: work_at_position_outside_step_role
+    block: work
+    measures: correctness
+    over: process
+    unit: count
+    summary: Work items opened at a position that does not play the role of their step.
+    how: WorkItemOpened events with a step_id whose at_position was established with a role_id other than the role_id of that step's StepListed. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.work.WorkItemOpened, org.process.StepListed, org.position.PositionEstablished]
+    status: planned
+
+  - id: request_closed_share
+    block: work
+    measures: completeness
+    over: offering
+    unit: share
+    summary: Share of the requests received in a window that reached an end.
+    how: Requests received in the window with a RequestFulfilled, RequestDeclined or RequestCancelled, divided by the RequestReceived events of the window.
+    direction: higher
+    gate: false
+    reads: [org.work.RequestReceived, org.work.RequestFulfilled, org.work.RequestDeclined, org.work.RequestCancelled]
+    status: planned
+
+  - id: request_lead_seconds
+    block: work
+    measures: quality
+    over: offering
+    unit: seconds
+    summary: Lead time of a request, from its arrival to its fulfilment.
+    how: Seconds from RequestReceived to RequestFulfilled of the same request; the median per offering. Declined and cancelled requests are left out.
+    direction: lower
+    gate: false
+    reads: [org.work.RequestReceived, org.work.RequestFulfilled]
+    status: simulated
+
+  - id: handoff_wait_seconds
+    block: work
+    measures: quality
+    over: position
+    unit: seconds
+    summary: Time work waits at a hand-off before the receiving position takes or refuses it.
+    how: Seconds from HandoffOffered to the HandoffAccepted or HandoffRefused of the same hand-off; the median per receiving position.
+    direction: lower
+    gate: false
+    reads: [org.work.HandoffOffered, org.work.HandoffAccepted, org.work.HandoffRefused]
+    status: simulated
+
+  - id: handoff_wait_share
+    block: work
+    measures: quality
+    over: offering
+    unit: share
+    summary: Share of a request's lead time that its work spent waiting at hand-offs.
+    how: Seconds from HandoffOffered to HandoffAccepted or HandoffRefused, summed over the work items opened for a request, divided by the seconds from its RequestReceived to its RequestFulfilled; the mean over the offering's fulfilled requests.
+    direction: lower
+    gate: false
+    reads: [org.work.RequestReceived, org.work.RequestFulfilled, org.work.WorkItemOpened, org.work.HandoffOffered, org.work.HandoffAccepted, org.work.HandoffRefused]
+    status: simulated
+
+  - id: commitment_broken_share
+    block: work
+    measures: quality
+    over: unit
+    unit: share
+    summary: Share of the commitments that came due in a window and were broken.
+    how: Commitments with a CommitmentSlipped in the window, divided by the commitments made by the unit's positions whose due date, after the last CommitmentRenegotiated, lies in the window. A commitment met or released before its due date counts as not broken.
+    direction: lower
+    gate: false
+    reads: [org.work.CommitmentMade, org.work.CommitmentRenegotiated, org.work.CommitmentSlipped, org.work.CommitmentMet, org.work.CommitmentReleased, org.position.PositionEstablished, org.position.PositionMoved]
+    status: planned
+
+  - id: work_blocked_share
+    block: work
+    measures: quality
+    over: process
+    unit: share
+    summary: Share of the time work items were in progress that they were blocked.
+    how: Seconds from WorkItemBlocked to the next WorkItemUnblocked, WorkItemCompleted or WorkItemDropped, summed, divided by the seconds from WorkItemStarted to WorkItemCompleted or WorkItemDropped, over the work items opened on the process.
+    direction: lower
+    gate: false
+    reads: [org.work.WorkItemOpened, org.work.WorkItemStarted, org.work.WorkItemBlocked, org.work.WorkItemUnblocked, org.work.WorkItemCompleted, org.work.WorkItemDropped]
+    status: planned
+
+  - id: idle_capacity_share
+    block: work
+    measures: quality
+    over: position
+    unit: share
+    summary: Share of a position's held capacity with no work item in progress.
+    how: 1 minus busy seconds divided by capacity seconds. Busy seconds run from WorkItemStarted to WorkItemCompleted or WorkItemDropped at the position, less the blocked time; capacity seconds are the window times the summed shares of the position's started and not ended assignments.
+    direction: lower
+    postures: { explore: higher, scale: lower, operate: lower }
+    gate: false
+    reads: [org.work.WorkItemStarted, org.work.WorkItemBlocked, org.work.WorkItemUnblocked, org.work.WorkItemCompleted, org.work.WorkItemDropped, org.assignment.AssignmentProposed, org.assignment.AssignmentStarted, org.assignment.ShareChanged, org.assignment.AssignmentEnded]
+    status: simulated
+
+  - id: cost_per_fulfilled_request
+    block: work
+    measures: quality
+    over: organization
+    unit: money
+    summary: Spend of a window divided by the requests fulfilled in it.
+    how: The increase of the running total `spent` over the window, summed over the organization's budgets from BudgetSpendRecorded and BudgetClosed, divided by the RequestFulfilled events of the window. Requests not fulfilled still cost, so an organization that fulfils less shows a higher value.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.budget.BudgetProposed, org.budget.BudgetSpendRecorded, org.budget.BudgetClosed, org.work.RequestFulfilled]
+    status: planned
+
+  - id: agreement_in_force_without_term
+    block: agreement
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Agreements in force that state no term.
+    how: Agreements with an AgreementPutInForce and no AgreementEnded whose TermSet events are all followed by a TermDropped, or that have none. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.agreement.AgreementPutInForce, org.agreement.AgreementEnded, org.agreement.TermSet, org.agreement.TermDropped]
+    status: planned
+
+  - id: seam_with_agreement_share
+    block: agreement
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the seams between units that work crosses and an agreement covers.
+    how: Ordered pairs of units with at least one HandoffOffered from a position of the first to a position of the second in the window, counted when an agreement in force names the receiving unit as provider and the offering unit as consumer, divided by all such pairs.
+    direction: higher
+    postures: { explore: ignore, scale: higher, operate: higher }
+    gate: false
+    reads: [org.work.HandoffOffered, org.position.PositionEstablished, org.position.PositionMoved, org.agreement.AgreementProposed, org.agreement.AgreementPutInForce, org.agreement.AgreementEnded]
+    status: planned
+
+  - id: term_kept_share
+    block: agreement
+    measures: quality
+    over: agreement
+    unit: share
+    summary: Share of an agreement's terms that were not breached in a window.
+    how: Terms set and not dropped with no TermBreached in the window, divided by the terms set and not dropped, counted while the agreement is in force.
+    direction: higher
+    gate: false
+    reads: [org.agreement.AgreementPutInForce, org.agreement.AgreementEnded, org.agreement.TermSet, org.agreement.TermDropped, org.agreement.TermBreached]
+    status: planned
+
+  - id: meeting_decision_outside_settles
+    block: forum
+    measures: correctness
+    over: forum
+    unit: count
+    summary: Decisions recorded in a meeting whose class the forum may not settle.
+    how: Decisions listed by MeetingHeld events whose class, from their DecisionOpened, is not in the `settles` list of the forum's ForumEstablished or last ForumRevised. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.forum.ForumEstablished, org.forum.ForumRevised, org.forum.MeetingHeld, org.decision.DecisionOpened]
+    status: planned
+
+  - id: meeting_held_on_cadence_share
+    block: forum
+    measures: completeness
+    over: forum
+    unit: share
+    summary: Share of a forum's cadence periods in which a meeting was held.
+    how: Periods of length `every` since ForumEstablished, less the periods between ForumSuspended and ForumResumed, that contain at least one MeetingHeld, divided by those periods.
+    direction: higher
+    gate: false
+    reads: [org.forum.ForumEstablished, org.forum.ForumRevised, org.forum.ForumSuspended, org.forum.ForumResumed, org.forum.ForumDissolved, org.forum.MeetingHeld]
+    status: planned
+
+  - id: meeting_skipped_share
+    block: forum
+    measures: quality
+    over: forum
+    unit: share
+    summary: Share of a forum's scheduled meetings that were skipped.
+    how: MeetingSkipped events divided by the sum of MeetingHeld and MeetingSkipped events of the forum in the window.
+    direction: lower
+    gate: false
+    reads: [org.forum.MeetingHeld, org.forum.MeetingSkipped]
+    status: planned
+
+  - id: relationship_in_internal_channel
+    block: channel
+    measures: correctness
+    over: channel
+    unit: count
+    summary: Parties outside the organization admitted to a channel that is not external.
+    how: RelationshipAdmitted events with no later ParticipantLeft of the same participation, into a channel whose ChannelOpened audience is not External. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.channel.ChannelOpened, org.channel.RelationshipAdmitted, org.channel.ParticipantLeft]
+    status: planned
+
+  - id: channel_with_poster_share
+    block: channel
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the open channels in which at least one participant may post.
+    how: Channels opened and not closed with at least one participation (MemberJoined, RelationshipAdmitted) that has not left and whose may_post, after the last PostingRightChanged, is true, divided by the channels opened and not closed.
+    direction: higher
+    gate: false
+    reads: [org.channel.ChannelOpened, org.channel.ChannelClosed, org.channel.MemberJoined, org.channel.RelationshipAdmitted, org.channel.PostingRightChanged, org.channel.ParticipantLeft]
+    status: planned
+
+  - id: channel_participant_count
+    block: channel
+    measures: quality
+    over: channel
+    unit: count
+    summary: Participants of an open channel.
+    how: MemberJoined and RelationshipAdmitted events of the channel minus its ParticipantLeft events. A path with many participants reaches many and is answered by few.
+    direction: lower
+    postures: { explore: ignore, scale: lower, operate: lower }
+    gate: false
+    reads: [org.channel.MemberJoined, org.channel.RelationshipAdmitted, org.channel.ParticipantLeft]
+    status: planned
+
+  - id: escalation_dead_end
+    block: escalation
+    measures: correctness
+    over: design
+    unit: count
+    summary: Escalation chains that close a cycle or end at a part that decides nothing.
+    how: Refusals of the structural rule escalation_dead_end that orgspec check prints for a design, one per chain of `escalates` links that closes a cycle or ends at a part that decides no class. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: escalation_exhausted
+    block: escalation
+    measures: correctness
+    over: unit
+    unit: count
+    summary: Escalations that passed the last level of their path with nobody resolving them.
+    how: EscalationExhausted events, counted for the unit that is the scope of the path named by their PathSet. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.escalation.PathSet, org.escalation.EscalationExhausted]
+    status: simulated
+
+  - id: escalation_acknowledged_share
+    block: escalation
+    measures: completeness
+    over: unit
+    unit: share
+    summary: Share of the levels an escalation reached at which it was acknowledged.
+    how: Levels reached by an EscalationRaised or EscalationMovedUp that have an EscalationAcknowledged of the same escalation and level, divided by the levels reached, over the paths whose scope is the unit.
+    direction: higher
+    gate: false
+    reads: [org.escalation.PathSet, org.escalation.EscalationRaised, org.escalation.EscalationMovedUp, org.escalation.EscalationAcknowledged]
+    status: planned
+
+  - id: escalation_resolve_seconds
+    block: escalation
+    measures: quality
+    over: unit
+    unit: seconds
+    summary: Time from raising an escalation to its resolution.
+    how: Seconds from EscalationRaised to EscalationResolved of the same escalation; the median over the paths whose scope is the unit. Exhausted escalations are left out and counted by escalation_exhausted.
+    direction: lower
+    gate: false
+    reads: [org.escalation.PathSet, org.escalation.EscalationRaised, org.escalation.EscalationResolved]
+    status: simulated
+
+  - id: subject_without_accountable
+    block: responsibility
+    measures: correctness
+    over: design
+    unit: count
+    summary: Subjects nobody is accountable for.
+    how: Refusals of the structural rule subject_without_accountable that orgspec check prints for a design, one per offering, asset, goal, process, policy, budget or agreement part with no incoming `accountable` link. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: subject_with_two_accountables
+    block: responsibility
+    measures: correctness
+    over: design
+    unit: count
+    summary: Subjects with more than one accountable position.
+    how: Refusals of the structural rule subject_with_two_accountables that orgspec check prints for a design, one per offering, asset, goal, process, policy, budget or agreement part with more than one incoming `accountable` link. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: accountable_not_position
+    block: responsibility
+    measures: correctness
+    over: design
+    unit: count
+    summary: Accountability held by a part that is not a position.
+    how: Refusals of the structural rule accountable_not_position that orgspec check prints for a design, one per `accountable` link that starts at a part that is not a position. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: subject_accountable_share
+    block: responsibility
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the live subjects that have an accountable position.
+    how: Offerings on offer, assets in use, goals committed, processes in force, policies adopted, budgets approved and agreements in force, none of them ended, whose last AccountabilityAssigned or AccountabilityTransferred is not followed by an AccountabilityReleased, divided by all such subjects. Must be 1.
+    direction: higher
+    gate: true
+    reads: [org.responsibility.AccountabilityAssigned, org.responsibility.AccountabilityTransferred, org.responsibility.AccountabilityReleased, org.offering.OfferingOffered, org.offering.OfferingWithdrawn, org.asset.AssetPutInUse, org.asset.AssetRetired, org.goal.GoalCommitted, org.goal.GoalAchieved, org.goal.GoalMissed, org.goal.GoalDropped, org.process.ProcessPutInForce, org.process.ProcessRetired, org.policy.PolicyAdopted, org.policy.PolicyRetired, org.budget.BudgetApproved, org.budget.BudgetClosed, org.agreement.AgreementPutInForce, org.agreement.AgreementEnded]
+    status: planned
+
+  - id: accountable_seat_vacant_share
+    block: responsibility
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of the accountabilities held by a position that nobody holds.
+    how: Subjects whose accountable position has no started and not ended assignment, divided by the subjects with an accountable position. The record says who answers; the seat is empty.
+    direction: lower
+    gate: false
+    reads: [org.responsibility.AccountabilityAssigned, org.responsibility.AccountabilityTransferred, org.responsibility.AccountabilityReleased, org.assignment.AssignmentStarted, org.assignment.AssignmentEnded]
+    status: planned
+
+  - id: accepted_risk_without_accountable
+    block: risk
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Open risks treated by acceptance that no position answers for.
+    how: Risks whose last RiskTreated has treatment Accept, with no RiskClosed, that are the subject of no AccountabilityAssigned or AccountabilityTransferred not followed by an AccountabilityReleased. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.risk.RiskTreated, org.risk.RiskClosed, org.responsibility.AccountabilityAssigned, org.responsibility.AccountabilityTransferred, org.responsibility.AccountabilityReleased]
+    status: planned
+
+  - id: risk_treated_share
+    block: risk
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the open risks that are assessed and have a treatment.
+    how: Risks identified and not closed with a RiskAssessed and a RiskTreated, divided by the risks identified and not closed.
+    direction: higher
+    gate: false
+    reads: [org.risk.RiskIdentified, org.risk.RiskAssessed, org.risk.RiskTreated, org.risk.RiskClosed]
+    status: planned
+
+  - id: risk_realized_untreated_share
+    block: risk
+    measures: quality
+    over: organization
+    unit: share
+    summary: Share of the realized risks that happened before a treatment was decided.
+    how: RiskRealized events whose `was` is Identified or Assessed, divided by all RiskRealized events of the window.
+    direction: lower
+    gate: false
+    reads: [org.risk.RiskRealized]
+    status: planned
+
+  - id: obligation_breached
+    block: obligation
+    measures: correctness
+    over: obligation
+    unit: count
+    summary: Breaches of an obligation.
+    how: ObligationBreached events of the obligation in the window. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.obligation.ObligationBreached]
+    status: planned
+
+  - id: obligation_with_control_share
+    block: obligation
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the obligations in force that a control meets.
+    how: Obligations registered and not ceased with at least one ControlSet that has no ControlRetired, divided by the obligations registered and not ceased. Must be 1.
+    direction: higher
+    gate: true
+    reads: [org.obligation.ObligationRegistered, org.obligation.ObligationCeased, org.obligation.ControlSet, org.obligation.ControlRetired]
+    status: planned
+
+  - id: control_evidence_current_share
+    block: obligation
+    measures: completeness
+    over: obligation
+    unit: share
+    summary: Share of an obligation's controls whose evidence is not older than the control asks.
+    how: Controls set and not retired whose last EvidenceRecorded is younger than their evidence_every at the end of the window, divided by the controls set and not retired.
+    direction: higher
+    gate: false
+    reads: [org.obligation.ControlSet, org.obligation.ControlRetired, org.obligation.EvidenceRecorded]
+    status: planned
+
+  - id: obligation_met_share
+    block: obligation
+    measures: quality
+    over: obligation
+    unit: share
+    summary: Share of a recurring obligation's periods in which it was met.
+    how: Periods of length due_every since ObligationRegistered that contain an ObligationMet, divided by those periods up to ObligationCeased or the end of the window. Obligations with no due_every are left out.
+    direction: higher
+    gate: false
+    reads: [org.obligation.ObligationRegistered, org.obligation.ObligationMet, org.obligation.ObligationCeased]
+    status: planned
+
+  - id: unknown_carries
+    block: type
+    measures: correctness
+    over: design
+    unit: count
+    summary: Links that carry something neither the blocks nor the design's type declares.
+    how: Refusals of the structural rule unknown_carries that orgspec check prints for a design, one per link whose `carries` is neither in the list of the design document nor a link name its type declares. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: design_under_unpublished_type
+    block: type
+    measures: correctness
+    over: type
+    unit: count
+    summary: Design revisions put under a type revision that was not published.
+    how: RevisionPutUnderType events of a design whose type_revision_id has no RevisionPublished of the type before them. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.type.RevisionOpened, org.type.RevisionPublished, org.design.RevisionPutUnderType]
+    status: planned
+
+  - id: designs_under_type
+    block: type
+    measures: quality
+    over: type
+    unit: count
+    summary: Committed design revisions that stand under a type.
+    how: RevisionCommitted events of design revisions whose RevisionPutUnderType names a published revision of the type. A type no design uses narrows nothing.
+    direction: higher
+    gate: false
+    reads: [org.type.RevisionOpened, org.type.RevisionPublished, org.design.RevisionPutUnderType, org.design.RevisionCommitted]
+    status: planned
+
+  - id: unknown_block
+    block: design
+    measures: correctness
+    over: design
+    unit: count
+    summary: Parts that name a block the specification does not have.
+    how: Refusals of the structural rule unknown_block that orgspec check prints for a design, one per part whose `block` is outside the list of the design document. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: unknown_link_parts
+    block: design
+    measures: correctness
+    over: design
+    unit: count
+    summary: Links whose ends name no part.
+    how: Refusals of the structural rule unknown_link_parts that orgspec check prints for a design, one per link whose `from` or `to` names no part. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: border_without_part
+    block: design
+    measures: correctness
+    over: design
+    unit: count
+    summary: Border entries that name no part.
+    how: Refusals of the structural rule border_without_part that orgspec check prints for a design, one per entry of `border` that names no part. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: unreachable_parts
+    block: design
+    measures: correctness
+    over: design
+    unit: count
+    summary: Parts that nothing in the design names.
+    how: Refusals of the structural rule unreachable_parts that orgspec check prints for a design, one per part that no link, no `in`, `role` or `convenes` and no border entry names. An organization part is exempt. Must be 0.
+    direction: lower
+    gate: true
+    reads: []
+    status: checked
+
+  - id: revision_under_type_share
+    block: design
+    measures: completeness
+    over: design
+    unit: share
+    summary: Share of a design's committed revisions that name their type.
+    how: RevisionCommitted events whose revision has a RevisionPutUnderType before the commit, divided by the RevisionCommitted events of the design.
+    direction: higher
+    gate: false
+    reads: [org.design.RevisionOpened, org.design.RevisionPutUnderType, org.design.RevisionCommitted]
+    status: planned
+
+  - id: measurement_of_retired_kpi
+    block: kpi
+    measures: correctness
+    over: organization
+    unit: count
+    summary: Measurements recorded for a KPI after it was retired.
+    how: MeasurementRecorded events timestamped after the KpiRetired of their KPI. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.kpi.KpiRetired, org.kpi.MeasurementRecorded]
+    status: planned
+
+  - id: kpi_direction_set_share
+    block: kpi
+    measures: completeness
+    over: organization
+    unit: share
+    summary: Share of the pairs of a KPI and a posture that have a direction.
+    how: Pairs of a KPI defined and not retired and a posture created that have a DirectionSet, divided by all such pairs. A pair without one cannot be weighed in a search.
+    direction: higher
+    gate: false
+    reads: [org.kpi.KpiDefined, org.kpi.KpiRetired, org.kpi.PostureCreated, org.kpi.DirectionSet]
+    status: planned
+
+  - id: kpi_measurement_age_days
+    block: kpi
+    measures: quality
+    over: organization
+    unit: days
+    summary: Age of the oldest last measurement among the KPIs in use.
+    how: Days from the last MeasurementRecorded of each KPI defined and not retired to the end of the window; the largest over those KPIs. A KPI never measured counts from its KpiDefined.
+    direction: lower
+    gate: false
+    reads: [org.kpi.KpiDefined, org.kpi.KpiRetired, org.kpi.MeasurementRecorded]
+    status: planned
+
+  - id: experiment_on_uncommitted_revision
+    block: experiment
+    measures: correctness
+    over: design
+    unit: count
+    summary: Experiments planned on a design revision that was not committed.
+    how: ExperimentPlanned events whose revision_id has no RevisionCommitted before them. Must be 0.
+    direction: lower
+    gate: true
+    reads: [org.experiment.ExperimentPlanned, org.design.RevisionCommitted]
+    status: planned
+
+  - id: experiment_done_share
+    block: experiment
+    measures: completeness
+    over: design
+    unit: share
+    summary: Share of the ended experiments on a design that ended done.
+    how: ExperimentDone events divided by the sum of ExperimentDone and ExperimentFailed events, over the experiments planned on revisions of the design.
+    direction: higher
+    gate: false
+    reads: [org.experiment.ExperimentPlanned, org.experiment.ExperimentDone, org.experiment.ExperimentFailed, org.design.RevisionOpened]
+    status: planned
+
+  - id: feasible_variant_share
+    block: experiment
+    measures: quality
+    over: design
+    unit: share
+    summary: Share of the variants a search recorded that pass every gate KPI.
+    how: VariantRecorded events with feasible true, divided by all VariantRecorded events of the experiments planned on revisions of the design.
+    direction: higher
+    gate: false
+    reads: [org.experiment.ExperimentPlanned, org.experiment.VariantRecorded, org.design.RevisionOpened]
+    status: planned
+
+  - id: experiment_fitness_gain
+    block: experiment
+    measures: quality
+    over: design
+    unit: points
+    summary: Fitness a search gained over the design it started from.
+    how: The highest fitness among the VariantRecorded events with feasible true of an experiment, minus the fitness of its first VariantRecorded; the largest over the done experiments on revisions of the design.
+    direction: higher
+    gate: false
+    reads: [org.experiment.ExperimentPlanned, org.experiment.VariantRecorded, org.experiment.ExperimentDone, org.design.RevisionOpened]
+    status: planned

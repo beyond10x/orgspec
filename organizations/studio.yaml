@@ -1,0 +1,40 @@
+format: orgspec-organization/1
+organization: studio
+type: base
+origin: invented
+summary: A product studio of about six people that builds one app. No type, only the blocks.
+
+parts:
+  studio:     { block: organization, form: company, purpose: "Build and run one app for people who keep notes." }
+  founders:   { block: unit, nature: governing, in: studio }
+  build:      { block: unit, nature: line, basis: offering, in: studio }
+  lead_role:  { block: role, purpose: "Says what is built next and answers for the app." }
+  maker_role: { block: role, purpose: "Builds and runs the app." }
+  lead:       { block: position, in: build, role: lead_role }
+  maker:
+    block: position
+    in: build
+    role: maker_role
+    seats: { value: 4, vary: { min: 2, max: 8 } }
+    held_by: mixed
+    agent_share: { value: 0.5, vary: [0, 0.25, 0.5, 0.75] }
+  app:        { block: offering, audience: external }
+  users:      { block: relationship, tie: customer }
+  spend:      { block: decision_class }
+  priority:   { block: decision_class }
+  weekly:     { block: forum, convenes: build, every: { value: 7d, vary: [1d, 7d, 14d] } }
+
+links:
+  - { from: maker,    to: lead,     carries: reports_to }
+  - { from: maker,    to: lead,     carries: answers_to }
+  - { from: lead,     to: founders, carries: reports_to }
+  - { from: lead,     to: app,      carries: accountable }
+  - { from: maker,    to: app,      carries: responsible }
+  - { from: users,    to: app,      carries: demand }
+  - { from: lead,     to: priority, carries: decides, mode: sole }
+  - { from: founders, to: spend,    carries: decides, mode: consent }
+  - { from: founders, to: lead,     carries: delegates, class: spend, limit: 5000 }
+  - { from: maker,    to: lead,     carries: escalates, after: 2d }
+  - { from: weekly,   to: priority, carries: settles }
+
+border: [lead]
