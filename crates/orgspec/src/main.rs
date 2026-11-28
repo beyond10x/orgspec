@@ -1,8 +1,7 @@
-//! `orgspec check`, `orgspec type check` and `orgspec specapp`.
+//! `orgspec check` and `orgspec type check`.
 
 use clap::{Args, Parser, Subcommand};
 use orgspec::check::{DesignReport, TypeReport, check_design, check_type};
-use orgspec::specapp;
 use orgspec::typeset::{directory, type_dirs};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -31,20 +30,6 @@ enum Command {
     Type {
         #[command(subcommand)]
         command: TypeCommand,
-    },
-    /// Answer specapp's tool protocol: `describe`, or `check <design>`.
-    ///
-    /// Prints one JSON document: `specapp-tool/1` for describe, `specapp-findings/1` for check.
-    /// Exits 0 with the document (a design with violations has `valid: false`), 2 with
-    /// `{"error": ...}` when the verb is unknown or the design cannot be read. The type path
-    /// is the one `orgspec check` uses, without flags.
-    Specapp {
-        #[arg(
-            trailing_var_arg = true,
-            allow_hyphen_values = true,
-            value_name = "VERB [ARGUMENT]"
-        )]
-        args: Vec<String>,
     },
 }
 
@@ -151,32 +136,5 @@ fn main() -> ExitCode {
             let result = check_type(file, dirs);
             outcome(file, result, TypeReport::exit_code, TypeReport::lines)
         }),
-        Command::Specapp { args } => answer_specapp(&args),
     }
-}
-
-/// `orgspec specapp <verb> [argument]`: one JSON document on stdout, exit 0 or 2.
-fn answer_specapp(args: &[String]) -> ExitCode {
-    let (code, value) = match args {
-        [verb] if verb == "describe" => (0, specapp::describe()),
-        [verb, file] if verb == "check" => {
-            let file = Path::new(file);
-            let env = std::env::var("ORGSPEC_TYPE_PATH").ok();
-            let beside = directory(file).join("..").join("types");
-            let dirs = type_dirs(&[], env.as_deref(), Path::new(""), Some(&beside));
-            match check_design(file, &dirs) {
-                Ok(report) => (0, specapp::findings(&report)),
-                Err(error) => (2, specapp::error(format!("{}: {error}", file.display()))),
-            }
-        }
-        [verb, ..] if verb == "describe" => (2, specapp::error("describe takes no argument")),
-        [verb, ..] if verb == "check" => (2, specapp::error("check takes one design")),
-        [verb, ..] => (2, specapp::error(format!("unknown verb `{verb}`"))),
-        [] => (2, specapp::error("a verb is missing: describe or check")),
-    };
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&value).unwrap_or_default()
-    );
-    ExitCode::from(code)
 }

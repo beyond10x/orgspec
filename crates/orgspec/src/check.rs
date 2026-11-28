@@ -2,7 +2,7 @@
 //! type against the types it extends.
 
 use crate::blocks;
-use crate::design::{self, Design, Link, Model};
+use crate::design::{self, Design, Model};
 use crate::graph;
 use crate::node::{self, Node};
 use crate::rules;
@@ -57,13 +57,6 @@ pub struct DesignReport {
     /// For every default, the links it added.
     pub defaults: BTreeMap<String, Vec<String>>,
     pub measures: Measures,
-    /// The names of the design's parts, in its order.
-    #[serde(skip)]
-    pub part_names: Vec<String>,
-    /// The names of the links (`<from>-><to>:<carries>`): those the design wrote, then those
-    /// its defaults added.
-    #[serde(skip)]
-    pub link_names: Vec<String>,
 }
 
 /// What `orgspec type check` says about one type.
@@ -225,8 +218,6 @@ pub fn check_design(file: &Path, dirs: &[PathBuf]) -> Result<DesignReport, Strin
         kpis: BTreeMap::new(),
         defaults: BTreeMap::new(),
         measures: Measures::default(),
-        part_names: design.parts.iter().map(|p| p.name.clone()).collect(),
-        link_names: design.links.iter().map(Link::name).collect(),
     };
     if !report.refusals.is_empty() {
         report.measures = measures(&model);
@@ -234,7 +225,6 @@ pub fn check_design(file: &Path, dirs: &[PathBuf]) -> Result<DesignReport, Strin
     }
     report.defaults = rules::apply_defaults(&mut model);
     report.links = model.links.len();
-    report.link_names = model.links.iter().map(Link::name).collect();
     report.violations = structure::check(&model);
     report.violations.extend(rules::check(&model));
     report.violations.sort();
