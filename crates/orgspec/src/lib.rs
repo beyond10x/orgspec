@@ -13,7 +13,6 @@ pub mod design;
 pub mod graph;
 pub mod node;
 pub mod rules;
-pub mod specapp;
 pub mod structure;
 pub mod types;
 pub mod typeset;

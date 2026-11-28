@@ -3,5 +3,4 @@ mod common;
 mod composition;
 mod refusals;
 mod rules;
-mod specapp;
 mod structure;
